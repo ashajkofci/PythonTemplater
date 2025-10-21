@@ -663,6 +663,9 @@ See the LICENSE file for full details.
         
         for placeholder, row in self.field_mapping_rows.items():
             mapping = row.get_mapping()
+            # Debug: show what get_mapping() returns
+            print(f"[DEBUG] {placeholder} get_mapping() returned: {mapping}")
+            
             if mapping:
                 columns = mapping['columns']
                 combine = mapping['combine']
@@ -681,6 +684,10 @@ See the LICENSE file for full details.
                         print(f"[DEBUG]   Fallback: {', '.join(columns[1:])}")
             else:
                 # Placeholder has no mapping - track it
+                # Debug: show the column vars to understand why mapping is None
+                column_values = [var.get() for var in row.column_vars]
+                print(f"[DEBUG] {placeholder} column_vars values: {column_values}")
+                print(f"[DEBUG] {placeholder} combine checkbox: {row.combine_var.get()}")
                 unmapped_placeholders.append(placeholder)
                 print(f"[DEBUG] WARNING: {placeholder} has no CSV column mapping (will be empty in documents)")
         
