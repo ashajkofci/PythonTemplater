@@ -22,7 +22,8 @@ wheels/
 
 # PyInstaller
 *.manifest
-*.spec
+# Keep our templater.spec
+# *.spec
 
 # Output directories
 attestations_word/

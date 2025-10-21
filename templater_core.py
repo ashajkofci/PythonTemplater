@@ -66,7 +66,10 @@ def find_columns(df: pd.DataFrame):
     last = col_like("nom", "lastname", "last", "name")
     org = col_like("organisation", "société", "societe", "raison", "entreprise", "compagnie", "company", "institution")
     civ = col_like("civilit", "titre", "title", "civility")
-    amt = col_like("montant", "amount", "don", "contribution")
+    # Check for "montant" first, then more general terms
+    amt = col_like("montant", "amount")
+    if not amt:
+        amt = col_like("don", "contribution")
 
     return first, last, org, civ, amt
 
