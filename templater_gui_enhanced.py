@@ -73,8 +73,12 @@ class FieldMappingRow:
         self.create_column_selector(0)
         
         # Combine checkbox
+        def on_combine_change():
+            print(f"[DEBUG] {self.placeholder} Combine checkbox changed to: {self.combine_var.get()}")
+            self._on_change()
+        
         ttk.Checkbutton(frame, text="Combine", variable=self.combine_var,
-                       command=self._on_change).grid(row=0, column=2, padx=5)
+                       command=on_combine_change).grid(row=0, column=2, padx=5)
         
         # Add column button
         add_btn = ttk.Button(frame, text="+", width=3, command=self.add_column_selector)
@@ -161,10 +165,13 @@ class FieldMappingRow:
         """Get the mapping configuration for this field"""
         # Debug: print what we're actually seeing
         all_vars = [var.get() for var in self.column_vars]
+        combine_checked = self.combine_var.get()
+        
         print(f"[DEBUG] get_mapping() for {self.placeholder}:")
         print(f"[DEBUG]   - Total column_vars: {len(self.column_vars)}")
         print(f"[DEBUG]   - All values: {all_vars}")
         print(f"[DEBUG]   - Non-empty values: {[v for v in all_vars if v]}")
+        print(f"[DEBUG]   - Combine checkbox: {combine_checked} (type: {type(combine_checked)})")
         
         columns = [var.get() for var in self.column_vars if var.get()]
         
@@ -172,7 +179,7 @@ class FieldMappingRow:
         # This preserves the number of dropdowns when saving/loading config
         return {
             'columns': columns if columns else [],
-            'combine': self.combine_var.get(),
+            'combine': combine_checked,
             'num_dropdowns': len(self.column_vars)  # Save the number of dropdowns
         }
     
@@ -390,6 +397,7 @@ See the LICENSE file for full details.
         self.filename_field1_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field1_var, 
                                                  state="readonly")
         self.filename_field1_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        # Event binding removed - config save/load disabled
         
         # Filename field 2 (CSV column, optional)
         ttk.Label(filename_frame, text="CSV Field 2:").grid(row=1, column=0, sticky=tk.W, pady=5)
@@ -397,6 +405,7 @@ See the LICENSE file for full details.
         self.filename_field2_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field2_var, 
                                                  state="readonly")
         self.filename_field2_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        # Event binding removed - config save/load disabled
         
         # Template placeholder (optional)
         ttk.Label(filename_frame, text="Template Field:").grid(row=2, column=0, sticky=tk.W, pady=5)
@@ -404,6 +413,7 @@ See the LICENSE file for full details.
         self.filename_template_combo = ttk.Combobox(filename_frame, textvariable=self.filename_template_var, 
                                                     state="readonly")
         self.filename_template_combo.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        # Event binding removed - config save/load disabled
         
         ttk.Label(filename_frame, text="Prefix:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.prefix_var = tk.StringVar(value="")
@@ -483,7 +493,7 @@ See the LICENSE file for full details.
             #     self.filename_field2_var.set('')  # Second field is optional
             
             self.update_mapping_ui()
-            self.load_config()
+            # Config save/load removed
             self.check_ready_to_generate()
         except Exception as e:
             print(f"[DEBUG] Error loading CSV: {e}")
@@ -520,7 +530,7 @@ See the LICENSE file for full details.
             self.filename_template_combo['values'] = [''] + self.template_placeholders
             
             self.update_mapping_ui()
-            self.load_config()
+            # Config save/load removed
             self.check_ready_to_generate()
         except Exception as e:
             print(f"[DEBUG] Error loading template: {e}")
@@ -598,7 +608,16 @@ See the LICENSE file for full details.
     
     def on_mapping_change(self):
         """Callback when any mapping changes"""
-        self.save_config()
+        # Config save/load removed - no action needed
+        pass
+    
+    def on_filename_change(self):
+        """Callback when filename configuration changes"""
+        print(f"[DEBUG] Filename field changed:")
+        print(f"[DEBUG]   CSV Field 1: '{self.filename_field1_var.get()}'")
+        print(f"[DEBUG]   CSV Field 2: '{self.filename_field2_var.get()}'")
+        print(f"[DEBUG]   Template Field: '{self.filename_template_var.get()}'")
+        # Config save/load removed - no action needed
     
     def get_config_path(self):
         """Get the config file path for current csv+template combination"""
@@ -608,95 +627,18 @@ See the LICENSE file for full details.
         config_key = get_config_key(self.csv_path, self.template_path)
         return self.config_dir / f"{config_key}.json"
     
+    # Config save/load functionality removed - functions kept for compatibility but do nothing
     def save_config(self):
-        """Save current configuration"""
-        config_path = self.get_config_path()
-        if not config_path:
-            return
-        
-        config = {
-            'csv_path': self.csv_path,
-            'template_path': self.template_path,
-            'mappings': {},
-            'filename_field1': self.filename_field1_var.get(),
-            'filename_field2': self.filename_field2_var.get(),
-            'filename_template': self.filename_template_var.get(),
-            'prefix': self.prefix_var.get(),
-            'suffix': self.suffix_var.get(),
-            'create_zip': self.zip_var.get()
-        }
-        
-        # Save all field mappings
-        for placeholder, row in self.field_mapping_rows.items():
-            mapping = row.get_mapping()
-            if mapping:
-                config['mappings'][placeholder] = mapping
-        
-        print(f"[DEBUG] Saving config to {config_path}")
-        print(f"[DEBUG] Mappings being saved: {config['mappings']}")
-        
-        try:
-            with open(config_path, 'w') as f:
-                json.dump(config, f, indent=2)
-            print(f"[DEBUG] Config saved successfully")
-        except Exception as e:
-            print(f"[DEBUG] Failed to save config: {e}")
+        """Save current configuration - DISABLED"""
+        pass
     
     def load_config(self):
-        """Load saved configuration"""
-        config_path = self.get_config_path()
-        if not config_path or not config_path.exists():
-            print(f"[DEBUG] No config file to load")
-            return
-        
-        try:
-            print(f"[DEBUG] Loading config from {config_path}")
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-            
-            print(f"[DEBUG] Mappings loaded from config: {config.get('mappings', {})}")
-            
-            # Load field mappings
-            mappings = config.get('mappings', {})
-            for placeholder, mapping_config in mappings.items():
-                if placeholder in self.field_mapping_rows:
-                    print(f"[DEBUG] Setting mapping for {placeholder}: {mapping_config}")
-                    self.field_mapping_rows[placeholder].set_mapping(mapping_config)
-            
-            # Load filename configuration
-            self.filename_field1_var.set(config.get('filename_field1', config.get('filename_field', '')))  # Backward compatibility
-            self.filename_field2_var.set(config.get('filename_field2', ''))
-            self.filename_template_var.set(config.get('filename_template', ''))
-            self.prefix_var.set(config.get('prefix', ''))
-            self.suffix_var.set(config.get('suffix', ''))
-            self.zip_var.set(config.get('create_zip', False))
-            
-            self.progress_var.set("Configuration loaded")
-            print(f"[DEBUG] Config loaded successfully")
-        except Exception as e:
-            print(f"[DEBUG] Failed to load config: {e}")
-            import traceback
-            traceback.print_exc()
+        """Load saved configuration - DISABLED"""
+        pass
     
     def reset_config(self):
-        """Reset configuration for current csv+template combination"""
-        config_path = self.get_config_path()
-        if config_path and config_path.exists():
-            try:
-                config_path.unlink()
-                self.progress_var.set("Configuration reset")
-                # Reload UI
-                self.update_mapping_ui()
-                self.filename_field1_var.set('')
-                self.filename_field2_var.set('')
-                self.filename_template_var.set('')
-                self.prefix_var.set('')
-                self.suffix_var.set('')
-                self.zip_var.set(False)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to reset config:\n{e}")
-        else:
-            messagebox.showinfo("Info", "No saved configuration to reset")
+        """Reset configuration - DISABLED"""
+        pass
     
     def check_ready_to_generate(self):
         if (self.csv_path and self.template_path and 
@@ -798,17 +740,45 @@ See the LICENSE file for full details.
         filename_field2 = self.filename_field2_var.get() or None
         filename_template = self.filename_template_var.get() or None
         
-        print(f"[DEBUG] Filename config: field1={filename_field1}, field2={filename_field2}, template={filename_template}")
+        print(f"[DEBUG] Filename config RAW:")
+        print(f"[DEBUG]   field1_var.get() = '{self.filename_field1_var.get()}'")
+        print(f"[DEBUG]   field1_combo.get() = '{self.filename_field1_combo.get()}'")  # Check combo directly
+        print(f"[DEBUG]   field2_var.get() = '{self.filename_field2_var.get()}'")
+        print(f"[DEBUG]   field2_combo.get() = '{self.filename_field2_combo.get()}'")  # Check combo directly
+        print(f"[DEBUG]   template_var.get() = '{self.filename_template_var.get()}'")
+        print(f"[DEBUG]   template_combo.get() = '{self.filename_template_combo.get()}'")  # Check combo directly
+        
+        # Force sync from combobox to StringVar in case they're out of sync
+        if self.filename_field1_combo.get() and not self.filename_field1_var.get():
+            print(f"[DEBUG] WARNING: Syncing field1 from combo to var")
+            self.filename_field1_var.set(self.filename_field1_combo.get())
+            filename_field1 = self.filename_field1_combo.get()
+        
+        if self.filename_field2_combo.get() and not self.filename_field2_var.get():
+            print(f"[DEBUG] WARNING: Syncing field2 from combo to var")
+            self.filename_field2_var.set(self.filename_field2_combo.get())
+            filename_field2 = self.filename_field2_combo.get()
+        
+        if self.filename_template_combo.get() and not self.filename_template_var.get():
+            print(f"[DEBUG] WARNING: Syncing template from combo to var")
+            self.filename_template_var.set(self.filename_template_combo.get())
+            filename_template = self.filename_template_combo.get()
+        
+        print(f"[DEBUG] Filename config (after sync and 'or None'):")
+        print(f"[DEBUG]   field1={filename_field1}, field2={filename_field2}, template={filename_template}")
         
         # Build filename parts list
         filename_parts = []
         if filename_field1:
             filename_parts.append(filename_field1)
+            print(f"[DEBUG]   Added field1 to parts: '{filename_field1}'")
         if filename_field2:
             filename_parts.append(filename_field2)
+            print(f"[DEBUG]   Added field2 to parts: '{filename_field2}'")
         if filename_template:
             # Template placeholders will be replaced with actual values
             filename_parts.append(f"__TEMPLATE__{filename_template}")
+            print(f"[DEBUG]   Added template to parts: '__TEMPLATE__{filename_template}'")
         
         # Combine filename fields
         filename_field = ' '.join(filename_parts) if filename_parts else None
@@ -817,10 +787,10 @@ See the LICENSE file for full details.
         suffix = self.suffix_var.get()
         make_zip = self.zip_var.get()
         
+        print(f"[DEBUG] Filename field combined: '{filename_field}'")
         print(f"[DEBUG] Output config: prefix='{prefix}', suffix='{suffix}', zip={make_zip}")
         
-        # Save configuration before generating
-        self.save_config()
+        # Config save/load removed
         
         # Disable generate button during processing
         self.generate_btn.config(state="disabled")

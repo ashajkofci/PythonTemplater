@@ -396,6 +396,7 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
                 continue
             
             value = ""
+            all_columns_for_this_placeholder = []  # Track all columns used for this placeholder
             
             # Handle empty csv_spec (unmapped placeholder)
             if not csv_spec or csv_spec == "":
@@ -407,11 +408,13 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
             if isinstance(csv_spec, str) and csv_spec in row:
                 # It's a valid single column name, even if it has spaces
                 value = str(row[csv_spec]).strip()
+                all_columns_for_this_placeholder.append(csv_spec)
             elif isinstance(csv_spec, str) and ' ' in csv_spec:
                 # It might be a combination of columns (space-separated)
                 parts = []
                 for col_name in csv_spec.split():
                     if col_name in row:
+                        all_columns_for_this_placeholder.append(col_name)
                         col_val = str(row[col_name]).strip()
                         if col_val:
                             parts.append(col_val)
@@ -423,6 +426,7 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
                 if fallback_key in field_mapping:
                     fallback_cols = field_mapping[fallback_key]
                     for col in fallback_cols:
+                        all_columns_for_this_placeholder.append(col)
                         if col in row:
                             val = str(row[col]).strip()
                             if val:
@@ -430,6 +434,19 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
                                 break
             
             mapping[placeholder] = value
+            
+            # Check if ALL columns for this placeholder are empty
+            if all_columns_for_this_placeholder:
+                all_empty = all(not str(row[col]).strip() for col in all_columns_for_this_placeholder if col in row)
+                if all_empty:
+                    print(f"[DEBUG] Row {idx+1}: Skipping because all columns for {placeholder} are empty: {all_columns_for_this_placeholder}")
+                    skip_row = True
+                    break  # No need to check other placeholders
+        
+        # Skip if any placeholder has all its columns empty
+        if skip_row:
+            skipped_rows.append(idx + 1)
+            continue
         
         # Skip ONLY if the row has no data at all in ANY CSV column
         # This is more robust than checking mapped placeholders, which might be unmapped
@@ -445,40 +462,60 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
         
         # Determine filename
         if filename_field:
+            print(f"[DEBUG] Row {idx+1}: Processing filename_field: '{filename_field}'")
             # Check if it's a combination of fields (space-separated)
             if ' ' in filename_field:
                 parts = []
                 for col_name in filename_field.split():
+                    print(f"[DEBUG]   Processing filename part: '{col_name}'")
                     # Check if it's a template placeholder
                     if col_name.startswith('__TEMPLATE__'):
                         # Extract placeholder name and use its mapped value
                         placeholder = col_name.replace('__TEMPLATE__', '')
+                        print(f"[DEBUG]     Template placeholder: {placeholder}")
                         if placeholder in mapping:
                             val = str(mapping[placeholder]).strip()
+                            print(f"[DEBUG]     Mapped value: '{val}'")
                             if val:
                                 parts.append(val)
+                        else:
+                            print(f"[DEBUG]     WARNING: {placeholder} not in mapping!")
                     elif col_name in row:
                         # Regular CSV column
                         col_val = str(row[col_name]).strip()
+                        print(f"[DEBUG]     CSV column value: '{col_val}'")
                         if col_val:
                             parts.append(col_val)
+                    else:
+                        print(f"[DEBUG]     WARNING: '{col_name}' not found in row columns")
                 base_name = slugify('_'.join(parts)) if parts else f"document_{idx}"
+                print(f"[DEBUG]   Final filename base: '{base_name}'")
             elif filename_field.startswith('__TEMPLATE__'):
                 # Single template placeholder
                 placeholder = filename_field.replace('__TEMPLATE__', '')
+                print(f"[DEBUG]   Single template placeholder: {placeholder}")
                 if placeholder in mapping:
                     base_name = slugify(str(mapping[placeholder]))
+                    print(f"[DEBUG]   Mapped to: '{base_name}'")
                 else:
+                    print(f"[DEBUG]   WARNING: {placeholder} not in mapping!")
                     base_name = f"document_{idx}"
             elif filename_field in row:
                 # Single CSV column
-                base_name = slugify(str(row[filename_field]))
+                col_val = str(row[filename_field])
+                base_name = slugify(col_val)
+                print(f"[DEBUG]   CSV column '{filename_field}' = '{col_val}' → slugified: '{base_name}'")
             else:
-                # Use first non-empty value as fallback
+                # Column not found - use first non-empty value as fallback
+                print(f"[DEBUG]   WARNING: filename_field '{filename_field}' not found in CSV columns!")
+                print(f"[DEBUG]   Available columns: {list(row.index)[:10]}...")
                 base_name = slugify(next((v for v in mapping.values() if v), f"document_{idx}"))
+                print(f"[DEBUG]   Using fallback: '{base_name}'")
         else:
-            # Use first non-empty value as fallback
+            # No filename field specified - use first non-empty value as fallback
+            print(f"[DEBUG] Row {idx+1}: No filename_field specified, using fallback")
             base_name = slugify(next((v for v in mapping.values() if v), f"document_{idx}"))
+            print(f"[DEBUG]   Fallback filename: '{base_name}'")
         
         fname = f"{filename_prefix}{base_name}{filename_suffix}.docx"
         out_path = os.path.join(outdir, fname)
