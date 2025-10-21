@@ -16,6 +16,9 @@ on:
           - minor
           - patch
 
+permissions:
+  contents: write
+
 jobs:
   version:
     runs-on: ubuntu-latest
@@ -26,6 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Get latest tag
         id: get_tag
