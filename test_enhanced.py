@@ -265,6 +265,72 @@ def test_gui_enhanced_import():
         return False
 
 
+def test_dual_filename_fields():
+    """Test combining two CSV columns for filename"""
+    print("\nTesting dual filename fields...")
+    try:
+        from templater_core import generate_documents
+        import pandas as pd
+        from docx import Document
+        
+        # Create test CSV
+        test_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='')
+        test_csv.write("first_name,last_name,amount\n")
+        test_csv.write("John,Doe,100\n")
+        test_csv.write("Jane,Smith,200\n")
+        test_csv.close()
+        
+        # Create test template
+        test_template = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
+        doc = Document()
+        doc.add_paragraph("{NAME} - Amount: {AMOUNT}")
+        doc.save(test_template.name)
+        test_template.close()
+        
+        # Test with dual filename fields (space-separated)
+        output_dir = tempfile.mkdtemp()
+        field_mapping = {
+            '{NAME}': 'first_name last_name',  # Combine for display
+            '{AMOUNT}': 'amount'
+        }
+        
+        files, _ = generate_documents(
+            csv_path=test_csv.name,
+            template_path=test_template.name,
+            outdir=output_dir,
+            field_mapping=field_mapping,
+            filename_field='first_name last_name',  # Combine for filename
+            filename_prefix='Invoice_',
+            make_zip=False
+        )
+        
+        # Verify files were created with combined names
+        success = len(files) == 2
+        if success:
+            # Check that filenames contain both parts
+            basenames = [os.path.basename(f) for f in files]
+            has_john_doe = any('John' in name and 'Doe' in name for name in basenames)
+            has_jane_smith = any('Jane' in name and 'Smith' in name for name in basenames)
+            success = has_john_doe and has_jane_smith
+        
+        # Clean up
+        os.unlink(test_csv.name)
+        os.unlink(test_template.name)
+        shutil.rmtree(output_dir)
+        
+        if success:
+            print(f"✓ Dual filename fields work (2 files with combined names)")
+        else:
+            print(f"✗ Dual filename fields failed")
+        
+        return success
+    except Exception as e:
+        print(f"✗ Dual filename fields test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main():
     print("=" * 60)
     print("Enhanced Features Test Suite")
@@ -274,6 +340,7 @@ def main():
     results.append(("Template Scanning", test_template_scanning()))
     results.append(("Multi-Column Priority", test_multi_column_priority()))
     results.append(("Column Combination", test_column_combination()))
+    results.append(("Dual Filename Fields", test_dual_filename_fields()))
     results.append(("Settings Persistence", test_settings_persistence()))
     results.append(("Enhanced GUI Import", test_gui_enhanced_import()))
     

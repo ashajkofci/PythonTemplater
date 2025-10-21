@@ -115,13 +115,22 @@ class FieldMappingRow:
     def remove_column_selector(self, idx):
         """Remove a column selector"""
         if len(self.column_vars) > 1:
-            # Remove the variable
-            self.column_vars.pop(idx)
-            # Recreate all selectors
+            # Store current values
+            current_values = [var.get() for var in self.column_vars]
+            # Remove the value at index
+            current_values.pop(idx)
+            
+            # Clear column_vars and widgets
+            self.column_vars.clear()
             for widget in self.columns_frame.winfo_children():
                 widget.destroy()
-            for i in range(len(self.column_vars)):
+            
+            # Recreate selectors with remaining values
+            for i, value in enumerate(current_values):
                 self.create_column_selector(i)
+                if value:
+                    self.column_vars[i].set(value)
+            
             self._on_change()
     
     def _on_change(self):
@@ -278,19 +287,27 @@ class EnhancedTemplaterGUI:
         filename_frame.columnconfigure(1, weight=1)
         current_row += 1
         
-        ttk.Label(filename_frame, text="Name Field:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.filename_field_var = tk.StringVar()
-        self.filename_field_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field_var, 
+        # Filename field 1
+        ttk.Label(filename_frame, text="Name Field 1:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.filename_field1_var = tk.StringVar()
+        self.filename_field1_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field1_var, 
                                                  state="readonly")
-        self.filename_field_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        self.filename_field1_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        ttk.Label(filename_frame, text="Prefix:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        # Filename field 2 (optional)
+        ttk.Label(filename_frame, text="Name Field 2:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.filename_field2_var = tk.StringVar()
+        self.filename_field2_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field2_var, 
+                                                 state="readonly")
+        self.filename_field2_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        
+        ttk.Label(filename_frame, text="Prefix:").grid(row=2, column=0, sticky=tk.W, pady=5)
         self.prefix_var = tk.StringVar(value="")
-        ttk.Entry(filename_frame, textvariable=self.prefix_var).grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(filename_frame, textvariable=self.prefix_var).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        ttk.Label(filename_frame, text="Suffix:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(filename_frame, text="Suffix:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.suffix_var = tk.StringVar(value="")
-        ttk.Entry(filename_frame, textvariable=self.suffix_var).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(filename_frame, textvariable=self.suffix_var).grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
         # === Options Section ===
         options_frame = ttk.LabelFrame(main_frame, text="Options", padding="10")
@@ -341,10 +358,12 @@ class EnhancedTemplaterGUI:
             df = read_csv_any(filepath)
             self.csv_columns = list(df.columns)
             
-            # Update filename field combobox
-            self.filename_field_combo['values'] = [''] + self.csv_columns
+            # Update filename field comboboxes
+            self.filename_field1_combo['values'] = [''] + self.csv_columns
+            self.filename_field2_combo['values'] = [''] + self.csv_columns
             if self.csv_columns:
-                self.filename_field_var.set(self.csv_columns[0])
+                self.filename_field1_var.set(self.csv_columns[0])
+                self.filename_field2_var.set('')  # Second field is optional
             
             self.update_mapping_ui()
             self.load_config()
@@ -462,7 +481,8 @@ class EnhancedTemplaterGUI:
             'csv_path': self.csv_path,
             'template_path': self.template_path,
             'mappings': {},
-            'filename_field': self.filename_field_var.get(),
+            'filename_field1': self.filename_field1_var.get(),
+            'filename_field2': self.filename_field2_var.get(),
             'prefix': self.prefix_var.get(),
             'suffix': self.suffix_var.get(),
             'create_zip': self.zip_var.get()
@@ -497,7 +517,8 @@ class EnhancedTemplaterGUI:
                     self.field_mapping_rows[placeholder].set_mapping(mapping_config)
             
             # Load filename configuration
-            self.filename_field_var.set(config.get('filename_field', ''))
+            self.filename_field1_var.set(config.get('filename_field1', config.get('filename_field', '')))  # Backward compatibility
+            self.filename_field2_var.set(config.get('filename_field2', ''))
             self.prefix_var.set(config.get('prefix', ''))
             self.suffix_var.set(config.get('suffix', ''))
             self.zip_var.set(config.get('create_zip', False))
@@ -515,7 +536,8 @@ class EnhancedTemplaterGUI:
                 self.progress_var.set("Configuration reset")
                 # Reload UI
                 self.update_mapping_ui()
-                self.filename_field_var.set('')
+                self.filename_field1_var.set('')
+                self.filename_field2_var.set('')
                 self.prefix_var.set('')
                 self.suffix_var.set('')
                 self.zip_var.set(False)
@@ -555,7 +577,19 @@ class EnhancedTemplaterGUI:
             return
         
         # Get filename configuration
-        filename_field = self.filename_field_var.get() or None
+        filename_field1 = self.filename_field1_var.get() or None
+        filename_field2 = self.filename_field2_var.get() or None
+        
+        # Combine filename fields if both are provided
+        if filename_field1 and filename_field2:
+            filename_field = f"{filename_field1} {filename_field2}"  # Combine with space
+        elif filename_field1:
+            filename_field = filename_field1
+        elif filename_field2:
+            filename_field = filename_field2
+        else:
+            filename_field = None
+        
         prefix = self.prefix_var.get()
         suffix = self.suffix_var.get()
         make_zip = self.zip_var.get()

@@ -334,8 +334,21 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
         replace_placeholders(doc, mapping)
         
         # Determine filename
-        if filename_field and filename_field in row:
-            base_name = slugify(str(row[filename_field]))
+        if filename_field:
+            # Check if it's a combination of fields (space-separated)
+            if ' ' in filename_field:
+                parts = []
+                for col_name in filename_field.split():
+                    if col_name in row:
+                        col_val = str(row[col_name]).strip()
+                        if col_val:
+                            parts.append(col_val)
+                base_name = slugify('_'.join(parts)) if parts else f"document_{idx}"
+            elif filename_field in row:
+                base_name = slugify(str(row[filename_field]))
+            else:
+                # Use first non-empty value as fallback
+                base_name = slugify(next((v for v in mapping.values() if v), f"document_{idx}"))
         else:
             # Use first non-empty value as fallback
             base_name = slugify(next((v for v in mapping.values() if v), f"document_{idx}"))
