@@ -315,6 +315,67 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
     df = read_csv_any(csv_path)
     os.makedirs(outdir, exist_ok=True)
 
+    # Validate that mapped columns exist in CSV
+    csv_columns = set(df.columns)
+    missing_columns = []
+    
+    for placeholder, csv_spec in field_mapping.items():
+        # Skip fallback keys for now (we'll check them separately)
+        if placeholder.endswith('_fallback'):
+            continue
+        
+        # Extract column names from the spec
+        if isinstance(csv_spec, str) and csv_spec:
+            # The runtime behavior is:
+            # 1. If spec contains spaces, try to split and combine multiple columns
+            # 2. If that yields no results (columns don't exist), try as single column name
+            
+            # First, check if the whole spec is a valid column name (handles columns with spaces)
+            if csv_spec in csv_columns:
+                # Valid single column, no problem
+                continue
+            
+            # If not, check if it's meant to be a column combination
+            if ' ' in csv_spec:
+                col_names = csv_spec.split()
+                # Check if any of the split columns exist
+                found_any = any(col_name in csv_columns for col_name in col_names)
+                
+                if not found_any:
+                    # None of the columns exist, this is an error
+                    missing_columns.append((placeholder, csv_spec))
+                # If some exist, that's OK (combination will work with available columns)
+            else:
+                # Single column that doesn't exist
+                missing_columns.append((placeholder, csv_spec))
+    
+    # Check fallback columns
+    for key, fallback_cols in field_mapping.items():
+        if key.endswith('_fallback') and isinstance(fallback_cols, list):
+            placeholder = key.replace('_fallback', '')
+            for col_name in fallback_cols:
+                if col_name and col_name not in csv_columns:
+                    missing_columns.append((placeholder, col_name))
+    
+    # If there are missing columns, provide a helpful warning
+    if missing_columns:
+        missing_details = []
+        for placeholder, col_name in missing_columns[:5]:  # Show first 5
+            missing_details.append(f"  - {placeholder} → '{col_name}'")
+        
+        warning_msg = (
+            f"Warning: {len(missing_columns)} mapped column(s) not found in CSV.\n"
+            f"Available columns: {', '.join(sorted(csv_columns)[:10])}"
+            f"{'...' if len(csv_columns) > 10 else ''}\n\n"
+            f"Missing mappings:\n" + "\n".join(missing_details)
+        )
+        
+        if len(missing_columns) > 5:
+            warning_msg += f"\n  ... and {len(missing_columns) - 5} more"
+        
+        # Raise a descriptive error so users know what went wrong
+        raise ValueError(warning_msg)
+
     generated_files = []
     total_rows = len(df)
     
