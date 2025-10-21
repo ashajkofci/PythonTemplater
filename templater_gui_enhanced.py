@@ -185,6 +185,7 @@ class EnhancedTemplaterGUI:
         self.template_placeholders = []
         self.field_mapping_rows = {}
         self.config_dir = get_config_dir()
+        self.csv_row_count = 0  # Track number of rows in CSV
         
         self.create_menu()
         self.create_widgets()
@@ -288,6 +289,10 @@ See the LICENSE file for full details.
         self.csv_label = ttk.Label(file_frame, text="No file selected", foreground="gray")
         self.csv_label.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
         ttk.Button(file_frame, text="Browse...", command=self.select_csv).grid(row=0, column=2, padx=5)
+        
+        # CSV row count info
+        self.csv_info_label = ttk.Label(file_frame, text="", foreground="blue", font=('TkDefaultFont', 8))
+        self.csv_info_label.grid(row=0, column=3, sticky=tk.W, padx=5)
         
         # Template file
         ttk.Label(file_frame, text="Template:").grid(row=1, column=0, sticky=tk.W, pady=5)
@@ -415,12 +420,24 @@ See the LICENSE file for full details.
     
     def load_csv(self, filepath):
         try:
+            print(f"[DEBUG] Loading CSV file: {filepath}")
             self.csv_path = filepath
             self.csv_label.config(text=os.path.basename(filepath), foreground="black")
             
             # Read CSV to get columns
             df = read_csv_any(filepath)
             self.csv_columns = list(df.columns)
+            self.csv_row_count = len(df)
+            
+            print(f"[DEBUG] CSV loaded successfully:")
+            print(f"[DEBUG]   - Total rows: {self.csv_row_count}")
+            print(f"[DEBUG]   - Total columns: {len(self.csv_columns)}")
+            print(f"[DEBUG]   - Column names: {', '.join(self.csv_columns[:10])}")
+            if len(self.csv_columns) > 10:
+                print(f"[DEBUG]     ... and {len(self.csv_columns) - 10} more")
+            
+            # Update UI with row count
+            self.csv_info_label.config(text=f"({self.csv_row_count} rows)")
             
             # Update filename field comboboxes
             self.filename_field1_combo['values'] = [''] + self.csv_columns
@@ -433,9 +450,14 @@ See the LICENSE file for full details.
             self.load_config()
             self.check_ready_to_generate()
         except Exception as e:
+            print(f"[DEBUG] Error loading CSV: {e}")
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Error", f"Failed to read CSV file:\n{e}")
             self.csv_path = None
+            self.csv_row_count = 0
             self.csv_label.config(text="No file selected", foreground="gray")
+            self.csv_info_label.config(text="")
     
     def select_template(self):
         filepath = filedialog.askopenfilename(
@@ -447,11 +469,16 @@ See the LICENSE file for full details.
     
     def load_template(self, filepath):
         try:
+            print(f"[DEBUG] Loading template file: {filepath}")
             self.template_path = filepath
             self.template_label.config(text=os.path.basename(filepath), foreground="black")
             
             # Get placeholders from template
             self.template_placeholders = get_placeholders_from_template(filepath)
+            
+            print(f"[DEBUG] Template loaded successfully:")
+            print(f"[DEBUG]   - Placeholders found: {len(self.template_placeholders)}")
+            print(f"[DEBUG]   - Placeholders: {', '.join(self.template_placeholders)}")
             
             # Update template field dropdown for filename configuration
             self.filename_template_combo['values'] = [''] + self.template_placeholders
@@ -460,6 +487,9 @@ See the LICENSE file for full details.
             self.load_config()
             self.check_ready_to_generate()
         except Exception as e:
+            print(f"[DEBUG] Error loading template: {e}")
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Error", f"Failed to read template file:\n{e}")
             self.template_path = None
             self.template_label.config(text="No file selected", foreground="gray")
@@ -624,6 +654,9 @@ See the LICENSE file for full details.
             self.generate_btn.config(state="disabled")
     
     def generate_documents(self):
+        print("\n[DEBUG] ========== Starting document generation ==========")
+        print(f"[DEBUG] CSV rows expected: {self.csv_row_count}")
+        
         # Build field mapping with priority and combination support
         field_mapping = {}
         for placeholder, row in self.field_mapping_rows.items():
@@ -635,14 +668,18 @@ See the LICENSE file for full details.
                 if combine and len(columns) > 1:
                     # Combine columns with space
                     field_mapping[placeholder] = ' '.join(columns)
+                    print(f"[DEBUG] Mapping {placeholder} = combine({', '.join(columns)})")
                 else:
                     # Use priority - first available non-empty column
                     field_mapping[placeholder] = columns[0] if columns else None
+                    print(f"[DEBUG] Mapping {placeholder} = {columns[0]}")
                     # Store additional columns for fallback
                     if len(columns) > 1:
                         field_mapping[f"{placeholder}_fallback"] = columns[1:]
+                        print(f"[DEBUG]   Fallback: {', '.join(columns[1:])}")
         
         if not field_mapping:
+            print("[DEBUG] No field mappings configured")
             messagebox.showwarning("Warning", "No field mappings configured. Please map at least one field.")
             return
         
@@ -650,6 +687,8 @@ See the LICENSE file for full details.
         filename_field1 = self.filename_field1_var.get() or None
         filename_field2 = self.filename_field2_var.get() or None
         filename_template = self.filename_template_var.get() or None
+        
+        print(f"[DEBUG] Filename config: field1={filename_field1}, field2={filename_field2}, template={filename_template}")
         
         # Build filename parts list
         filename_parts = []
@@ -667,6 +706,8 @@ See the LICENSE file for full details.
         prefix = self.prefix_var.get()
         suffix = self.suffix_var.get()
         make_zip = self.zip_var.get()
+        
+        print(f"[DEBUG] Output config: prefix='{prefix}', suffix='{suffix}', zip={make_zip}")
         
         # Save configuration before generating
         self.save_config()
@@ -688,6 +729,7 @@ See the LICENSE file for full details.
             self.root.after(0, lambda: self.progress_var.set(message))
         
         try:
+            print(f"[DEBUG] Calling generate_documents()...")
             generated_files, zip_path = generate_documents(
                 csv_path=self.csv_path,
                 template_path=self.template_path,
@@ -700,13 +742,38 @@ See the LICENSE file for full details.
                 progress_callback=progress_callback
             )
             
-            message = f"Success! Generated {len(generated_files)} documents"
-            if zip_path:
-                message += f"\nZIP archive: {os.path.basename(zip_path)}"
+            print(f"[DEBUG] Generation complete:")
+            print(f"[DEBUG]   - CSV rows: {self.csv_row_count}")
+            print(f"[DEBUG]   - Documents generated: {len(generated_files)}")
+            print(f"[DEBUG]   - Difference: {self.csv_row_count - len(generated_files)} rows skipped")
             
-            self.root.after(0, lambda: messagebox.showinfo("Success", message))
-            self.root.after(0, lambda: self.progress_var.set(f"Complete - {len(generated_files)} files generated"))
+            # Check if there's a mismatch between CSV rows and generated documents
+            if len(generated_files) < self.csv_row_count:
+                skipped = self.csv_row_count - len(generated_files)
+                message = (
+                    f"⚠️ Warning: Generated {len(generated_files)} documents from {self.csv_row_count} CSV rows.\n"
+                    f"{skipped} rows were skipped (likely due to empty data in mapped columns).\n\n"
+                    f"Check the debug logs for details."
+                )
+                if zip_path:
+                    message += f"\n\nZIP archive: {os.path.basename(zip_path)}"
+                
+                print(f"[DEBUG] WARNING: Mismatch detected - {skipped} rows skipped")
+                self.root.after(0, lambda: messagebox.showwarning("Partial Success", message))
+                self.root.after(0, lambda: self.progress_var.set(
+                    f"Complete - {len(generated_files)}/{self.csv_row_count} files generated ({skipped} skipped)"
+                ))
+            else:
+                message = f"Success! Generated {len(generated_files)} documents"
+                if zip_path:
+                    message += f"\nZIP archive: {os.path.basename(zip_path)}"
+                
+                self.root.after(0, lambda: messagebox.showinfo("Success", message))
+                self.root.after(0, lambda: self.progress_var.set(f"Complete - {len(generated_files)} files generated"))
         except Exception as e:
+            print(f"[DEBUG] Error during generation: {e}")
+            import traceback
+            traceback.print_exc()
             self.root.after(0, lambda: messagebox.showerror("Error", f"Generation failed:\n{e}"))
             self.root.after(0, lambda: self.progress_var.set("Error occurred"))
         finally:

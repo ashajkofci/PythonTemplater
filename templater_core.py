@@ -378,6 +378,9 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
 
     generated_files = []
     total_rows = len(df)
+    skipped_rows = []  # Track skipped rows for debugging
+    
+    print(f"[DEBUG] Starting to process {total_rows} CSV rows...")
     
     for idx, row in df.iterrows():
         if progress_callback:
@@ -425,6 +428,7 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
         
         # Skip empty rows or rows without critical data
         if not any(mapping.values()):
+            skipped_rows.append(idx + 1)  # +1 for 1-based row number
             continue
         
         # Open a new Document based on the template for EACH row
@@ -487,6 +491,16 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for fp in generated_files:
                 zf.write(fp, arcname=os.path.basename(fp))
+    
+    # Debug output
+    print(f"[DEBUG] Document generation summary:")
+    print(f"[DEBUG]   - Total CSV rows: {total_rows}")
+    print(f"[DEBUG]   - Documents generated: {len(generated_files)}")
+    print(f"[DEBUG]   - Rows skipped: {len(skipped_rows)}")
+    if skipped_rows and len(skipped_rows) <= 10:
+        print(f"[DEBUG]   - Skipped row numbers: {', '.join(map(str, skipped_rows))}")
+    elif skipped_rows:
+        print(f"[DEBUG]   - Skipped row numbers (first 10): {', '.join(map(str, skipped_rows[:10]))}...")
     
     if progress_callback:
         progress_callback(total_rows, total_rows, f"Complete! Generated {len(generated_files)} files")
