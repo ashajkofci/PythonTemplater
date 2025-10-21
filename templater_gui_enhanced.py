@@ -344,27 +344,34 @@ See the LICENSE file for full details.
         filename_frame.columnconfigure(1, weight=1)
         current_row += 1
         
-        # Filename field 1
-        ttk.Label(filename_frame, text="Name Field 1:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        # Filename field 1 (CSV column)
+        ttk.Label(filename_frame, text="CSV Field 1:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.filename_field1_var = tk.StringVar()
         self.filename_field1_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field1_var, 
                                                  state="readonly")
         self.filename_field1_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        # Filename field 2 (optional)
-        ttk.Label(filename_frame, text="Name Field 2:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        # Filename field 2 (CSV column, optional)
+        ttk.Label(filename_frame, text="CSV Field 2:").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.filename_field2_var = tk.StringVar()
         self.filename_field2_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field2_var, 
                                                  state="readonly")
         self.filename_field2_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        ttk.Label(filename_frame, text="Prefix:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.prefix_var = tk.StringVar(value="")
-        ttk.Entry(filename_frame, textvariable=self.prefix_var).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        # Template placeholder (optional)
+        ttk.Label(filename_frame, text="Template Field:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.filename_template_var = tk.StringVar()
+        self.filename_template_combo = ttk.Combobox(filename_frame, textvariable=self.filename_template_var, 
+                                                    state="readonly")
+        self.filename_template_combo.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
-        ttk.Label(filename_frame, text="Suffix:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        ttk.Label(filename_frame, text="Prefix:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.prefix_var = tk.StringVar(value="")
+        ttk.Entry(filename_frame, textvariable=self.prefix_var).grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        
+        ttk.Label(filename_frame, text="Suffix:").grid(row=4, column=0, sticky=tk.W, pady=5)
         self.suffix_var = tk.StringVar(value="")
-        ttk.Entry(filename_frame, textvariable=self.suffix_var).grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        ttk.Entry(filename_frame, textvariable=self.suffix_var).grid(row=4, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
         # === Options Section ===
         options_frame = ttk.LabelFrame(main_frame, text="Options", padding="10")
@@ -445,6 +452,9 @@ See the LICENSE file for full details.
             
             # Get placeholders from template
             self.template_placeholders = get_placeholders_from_template(filepath)
+            
+            # Update template field dropdown for filename configuration
+            self.filename_template_combo['values'] = [''] + self.template_placeholders
             
             self.update_mapping_ui()
             self.load_config()
@@ -540,6 +550,7 @@ See the LICENSE file for full details.
             'mappings': {},
             'filename_field1': self.filename_field1_var.get(),
             'filename_field2': self.filename_field2_var.get(),
+            'filename_template': self.filename_template_var.get(),
             'prefix': self.prefix_var.get(),
             'suffix': self.suffix_var.get(),
             'create_zip': self.zip_var.get()
@@ -576,6 +587,7 @@ See the LICENSE file for full details.
             # Load filename configuration
             self.filename_field1_var.set(config.get('filename_field1', config.get('filename_field', '')))  # Backward compatibility
             self.filename_field2_var.set(config.get('filename_field2', ''))
+            self.filename_template_var.set(config.get('filename_template', ''))
             self.prefix_var.set(config.get('prefix', ''))
             self.suffix_var.set(config.get('suffix', ''))
             self.zip_var.set(config.get('create_zip', False))
@@ -595,6 +607,7 @@ See the LICENSE file for full details.
                 self.update_mapping_ui()
                 self.filename_field1_var.set('')
                 self.filename_field2_var.set('')
+                self.filename_template_var.set('')
                 self.prefix_var.set('')
                 self.suffix_var.set('')
                 self.zip_var.set(False)
@@ -636,16 +649,20 @@ See the LICENSE file for full details.
         # Get filename configuration
         filename_field1 = self.filename_field1_var.get() or None
         filename_field2 = self.filename_field2_var.get() or None
+        filename_template = self.filename_template_var.get() or None
         
-        # Combine filename fields if both are provided
-        if filename_field1 and filename_field2:
-            filename_field = f"{filename_field1} {filename_field2}"  # Combine with space
-        elif filename_field1:
-            filename_field = filename_field1
-        elif filename_field2:
-            filename_field = filename_field2
-        else:
-            filename_field = None
+        # Build filename parts list
+        filename_parts = []
+        if filename_field1:
+            filename_parts.append(filename_field1)
+        if filename_field2:
+            filename_parts.append(filename_field2)
+        if filename_template:
+            # Template placeholders will be replaced with actual values
+            filename_parts.append(f"__TEMPLATE__{filename_template}")
+        
+        # Combine filename fields
+        filename_field = ' '.join(filename_parts) if filename_parts else None
         
         prefix = self.prefix_var.get()
         suffix = self.suffix_var.get()

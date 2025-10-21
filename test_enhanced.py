@@ -331,6 +331,74 @@ def test_dual_filename_fields():
         return False
 
 
+def test_template_placeholder_in_filename():
+    """Test using template placeholder value in filename"""
+    print("\nTesting template placeholder in filename...")
+    try:
+        from templater_core import generate_documents
+        import pandas as pd
+        from docx import Document
+        
+        # Create test CSV
+        test_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='')
+        test_csv.write("customer_name,invoice_id,amount\n")
+        test_csv.write("John Doe,INV001,100\n")
+        test_csv.write("Jane Smith,INV002,200\n")
+        test_csv.close()
+        
+        # Create test template
+        test_template = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
+        doc = Document()
+        doc.add_paragraph("Invoice for {NAME}: Amount {AMOUNT}")
+        doc.save(test_template.name)
+        test_template.close()
+        
+        # Test with template placeholder in filename
+        output_dir = tempfile.mkdtemp()
+        field_mapping = {
+            '{NAME}': 'customer_name',
+            '{AMOUNT}': 'amount'
+        }
+        
+        files, _ = generate_documents(
+            csv_path=test_csv.name,
+            template_path=test_template.name,
+            outdir=output_dir,
+            field_mapping=field_mapping,
+            filename_field='invoice_id __TEMPLATE__{AMOUNT}',  # CSV + template value
+            filename_prefix='Invoice_',
+            make_zip=False
+        )
+        
+        # Verify files were created
+        success = len(files) == 2
+        if success:
+            # Check filenames contain both invoice_id and amount
+            basenames = [os.path.basename(f) for f in files]
+            print(f"  Generated filenames: {basenames}")
+            # Should have invoice IDs and amounts in names
+            has_inv001 = any('INV001' in name for name in basenames)
+            has_amounts = any('100' in name or '200' in name for name in basenames)
+            success = has_inv001 and has_amounts
+        
+        # Clean up
+        os.unlink(test_csv.name)
+        os.unlink(test_template.name)
+        shutil.rmtree(output_dir)
+        
+        if success:
+            print(f"✓ Template placeholder in filename works")
+        else:
+            print(f"✗ Template placeholder in filename failed")
+        
+        return success
+    except Exception as e:
+        print(f"✗ Template placeholder in filename test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main():
     print("=" * 60)
     print("Enhanced Features Test Suite")
@@ -341,6 +409,7 @@ def main():
     results.append(("Multi-Column Priority", test_multi_column_priority()))
     results.append(("Column Combination", test_column_combination()))
     results.append(("Dual Filename Fields", test_dual_filename_fields()))
+    results.append(("Template Placeholder in Filename", test_template_placeholder_in_filename()))
     results.append(("Settings Persistence", test_settings_persistence()))
     results.append(("Enhanced GUI Import", test_gui_enhanced_import()))
     

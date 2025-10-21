@@ -376,12 +376,29 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
             if ' ' in filename_field:
                 parts = []
                 for col_name in filename_field.split():
-                    if col_name in row:
+                    # Check if it's a template placeholder
+                    if col_name.startswith('__TEMPLATE__'):
+                        # Extract placeholder name and use its mapped value
+                        placeholder = col_name.replace('__TEMPLATE__', '')
+                        if placeholder in mapping:
+                            val = str(mapping[placeholder]).strip()
+                            if val:
+                                parts.append(val)
+                    elif col_name in row:
+                        # Regular CSV column
                         col_val = str(row[col_name]).strip()
                         if col_val:
                             parts.append(col_val)
                 base_name = slugify('_'.join(parts)) if parts else f"document_{idx}"
+            elif filename_field.startswith('__TEMPLATE__'):
+                # Single template placeholder
+                placeholder = filename_field.replace('__TEMPLATE__', '')
+                if placeholder in mapping:
+                    base_name = slugify(str(mapping[placeholder]))
+                else:
+                    base_name = f"document_{idx}"
             elif filename_field in row:
+                # Single CSV column
                 base_name = slugify(str(row[filename_field]))
             else:
                 # Use first non-empty value as fallback
