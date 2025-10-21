@@ -397,9 +397,18 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
             
             value = ""
             
-            # Check if it's a combination of columns (space-separated)
-            if isinstance(csv_spec, str) and ' ' in csv_spec:
-                # Combine multiple columns
+            # Handle empty csv_spec (unmapped placeholder)
+            if not csv_spec or csv_spec == "":
+                # Leave value as empty string - this is intentional for unmapped placeholders
+                mapping[placeholder] = value
+                continue
+            
+            # Check if it's a single column name (even if it contains spaces)
+            if isinstance(csv_spec, str) and csv_spec in row:
+                # It's a valid single column name, even if it has spaces
+                value = str(row[csv_spec]).strip()
+            elif isinstance(csv_spec, str) and ' ' in csv_spec:
+                # It might be a combination of columns (space-separated)
                 parts = []
                 for col_name in csv_spec.split():
                     if col_name in row:
@@ -407,27 +416,25 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
                         if col_val:
                             parts.append(col_val)
                 value = ' '.join(parts)
-            elif isinstance(csv_spec, str):
-                # Single column - try it first
-                if csv_spec in row:
-                    value = str(row[csv_spec]).strip()
-                
-                # If empty, try fallback columns
-                if not value:
-                    fallback_key = f"{placeholder}_fallback"
-                    if fallback_key in field_mapping:
-                        fallback_cols = field_mapping[fallback_key]
-                        for col in fallback_cols:
-                            if col in row:
-                                val = str(row[col]).strip()
-                                if val:
-                                    value = val
-                                    break
+            
+            # Try fallback columns if value is still empty
+            if isinstance(csv_spec, str) and not value:
+                fallback_key = f"{placeholder}_fallback"
+                if fallback_key in field_mapping:
+                    fallback_cols = field_mapping[fallback_key]
+                    for col in fallback_cols:
+                        if col in row:
+                            val = str(row[col]).strip()
+                            if val:
+                                value = val
+                                break
             
             mapping[placeholder] = value
         
         # Skip empty rows or rows without critical data
-        if not any(mapping.values()):
+        # Only skip if ALL values are empty (including unmapped placeholders that were set to "")
+        # But be lenient: if at least ONE placeholder has data, generate the document
+        if not any(v for v in mapping.values() if v):  # More explicit: check for non-empty strings
             skipped_rows.append(idx + 1)  # +1 for 1-based row number
             continue
         

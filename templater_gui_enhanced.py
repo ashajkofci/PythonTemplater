@@ -659,6 +659,8 @@ See the LICENSE file for full details.
         
         # Build field mapping with priority and combination support
         field_mapping = {}
+        unmapped_placeholders = []
+        
         for placeholder, row in self.field_mapping_rows.items():
             mapping = row.get_mapping()
             if mapping:
@@ -677,11 +679,35 @@ See the LICENSE file for full details.
                     if len(columns) > 1:
                         field_mapping[f"{placeholder}_fallback"] = columns[1:]
                         print(f"[DEBUG]   Fallback: {', '.join(columns[1:])}")
+            else:
+                # Placeholder has no mapping - track it
+                unmapped_placeholders.append(placeholder)
+                print(f"[DEBUG] WARNING: {placeholder} has no CSV column mapping (will be empty in documents)")
         
         if not field_mapping:
             print("[DEBUG] No field mappings configured")
             messagebox.showwarning("Warning", "No field mappings configured. Please map at least one field.")
             return
+        
+        # Warn about unmapped placeholders
+        if unmapped_placeholders:
+            unmapped_list = '\n'.join([f"  • {p}" for p in unmapped_placeholders])
+            warning_msg = (
+                f"⚠️ Warning: {len(unmapped_placeholders)} placeholder(s) in the template have no CSV column mapping:\n\n"
+                f"{unmapped_list}\n\n"
+                f"These placeholders will be left empty in generated documents.\n\n"
+                f"Do you want to continue?"
+            )
+            print(f"[DEBUG] WARNING: Unmapped placeholders detected: {', '.join(unmapped_placeholders)}")
+            
+            if not messagebox.askyesno("Unmapped Placeholders", warning_msg):
+                print("[DEBUG] User cancelled generation due to unmapped placeholders")
+                return
+            
+            # Add empty mappings for unmapped placeholders so they don't cause all rows to be skipped
+            for placeholder in unmapped_placeholders:
+                field_mapping[placeholder] = ""
+                print(f"[DEBUG] Adding empty mapping for {placeholder}")
         
         # Get filename configuration
         filename_field1 = self.filename_field1_var.get() or None
