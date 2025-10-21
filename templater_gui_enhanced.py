@@ -186,8 +186,65 @@ class EnhancedTemplaterGUI:
         self.field_mapping_rows = {}
         self.config_dir = get_config_dir()
         
+        self.create_menu()
         self.create_widgets()
         self.setup_drag_drop()
+    
+    def create_menu(self):
+        """Create menu bar with Help menu"""
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
+        help_menu.add_command(label="License", command=self.show_license)
+    
+    def show_about(self):
+        """Show About dialog"""
+        about_text = """CSV to DOCX Templater
+Version 2.0
+
+A powerful multiplatform application for generating 
+DOCX documents from CSV data and templates.
+
+Author: Adrian Shajkofci
+License: BSD-3-Clause
+
+Features:
+• Multi-column mapping with priority
+• Column combination
+• Drag & drop support
+• Settings persistence
+• Cross-platform (Windows, macOS, Linux)
+"""
+        messagebox.showinfo("About CSV Templater", about_text)
+    
+    def show_license(self):
+        """Show License dialog"""
+        license_text = """BSD 3-Clause License
+
+Copyright (c) 2025, Adrian Shajkofci
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
+See the LICENSE file for full details.
+"""
+        messagebox.showinfo("License", license_text)
     
     def setup_drag_drop(self):
         """Setup drag and drop for file inputs"""

@@ -60,21 +60,21 @@ def test_example_script():
         return False
 
 def test_gui_module():
-    """Test templater_gui module (may fail in headless environment)"""
-    print("\nTesting templater_gui module...")
+    """Test templater_gui_enhanced module (may fail in headless environment)"""
+    print("\nTesting templater_gui_enhanced module...")
     try:
-        import templater_gui
-        print("✓ GUI module imported successfully")
+        import templater_gui_enhanced
+        print("✓ Enhanced GUI module imported successfully")
         return True
     except ModuleNotFoundError as e:
         if 'tkinter' in str(e):
-            print("⚠ GUI module requires tkinter (not available in this environment)")
+            print("⚠ Enhanced GUI module requires tkinter (not available in this environment)")
             return True  # Not a failure, just unavailable
         else:
-            print(f"✗ GUI module test failed: {e}")
+            print(f"✗ Enhanced GUI module test failed: {e}")
             return False
     except Exception as e:
-        print(f"✗ GUI module test failed: {e}")
+        print(f"✗ Enhanced GUI module test failed: {e}")
         import traceback
         traceback.print_exc()
         return False

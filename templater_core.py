@@ -219,13 +219,50 @@ def get_placeholders_from_template(template_path: str) -> list:
 
 
 def replace_placeholders(doc: Document, mapping):
-    """Remplace les placeholders dans paragraphes ET tableaux."""
+    """Remplace les placeholders dans paragraphes ET tableaux, même s'ils sont fragmentés entre plusieurs runs."""
     def _replace_in_paragraph(p):
         for key, val in mapping.items():
             if key in p.text:
+                # First try simple replacement in individual runs
+                replaced = False
                 for run in p.runs:
                     if key in run.text:
                         run.text = run.text.replace(key, val)
+                        replaced = True
+                
+                # If not replaced, the placeholder might be split across runs
+                if not replaced and key in p.text:
+                    # Rebuild the paragraph by merging runs
+                    full_text = p.text
+                    if key in full_text:
+                        # Replace in full text
+                        new_text = full_text.replace(key, val)
+                        
+                        # Clear all runs and create a single run with replaced text
+                        # Keep the style of the first run
+                        if p.runs:
+                            first_run = p.runs[0]
+                            # Store style properties
+                            font_name = first_run.font.name
+                            font_size = first_run.font.size
+                            bold = first_run.font.bold
+                            italic = first_run.font.italic
+                            
+                            # Clear all runs
+                            for run in p.runs[:]:
+                                run.text = ''
+                            
+                            # Set new text in first run
+                            first_run.text = new_text
+                            # Restore style
+                            if font_name:
+                                first_run.font.name = font_name
+                            if font_size:
+                                first_run.font.size = font_size
+                            if bold is not None:
+                                first_run.font.bold = bold
+                            if italic is not None:
+                                first_run.font.italic = italic
 
     # Paragraphes
     for p in doc.paragraphs:
