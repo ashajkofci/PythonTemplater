@@ -315,8 +315,72 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
     df = read_csv_any(csv_path)
     os.makedirs(outdir, exist_ok=True)
 
+    # Validate that mapped columns exist in CSV
+    csv_columns = set(df.columns)
+    missing_columns = []
+    
+    for placeholder, csv_spec in field_mapping.items():
+        # Skip fallback keys for now (we'll check them separately)
+        if placeholder.endswith('_fallback'):
+            continue
+        
+        # Extract column names from the spec
+        if isinstance(csv_spec, str) and csv_spec:
+            # The runtime behavior is:
+            # 1. If spec contains spaces, try to split and combine multiple columns
+            # 2. If that yields no results (columns don't exist), try as single column name
+            
+            # First, check if the whole spec is a valid column name (handles columns with spaces)
+            if csv_spec in csv_columns:
+                # Valid single column, no problem
+                continue
+            
+            # If not, check if it's meant to be a column combination
+            if ' ' in csv_spec:
+                col_names = csv_spec.split()
+                # Check if any of the split columns exist
+                found_any = any(col_name in csv_columns for col_name in col_names)
+                
+                if not found_any:
+                    # None of the columns exist, this is an error
+                    missing_columns.append((placeholder, csv_spec))
+                # If some exist, that's OK (combination will work with available columns)
+            else:
+                # Single column that doesn't exist
+                missing_columns.append((placeholder, csv_spec))
+    
+    # Check fallback columns
+    for key, fallback_cols in field_mapping.items():
+        if key.endswith('_fallback') and isinstance(fallback_cols, list):
+            placeholder = key.replace('_fallback', '')
+            for col_name in fallback_cols:
+                if col_name and col_name not in csv_columns:
+                    missing_columns.append((placeholder, col_name))
+    
+    # If there are missing columns, provide a helpful warning
+    if missing_columns:
+        missing_details = []
+        for placeholder, col_name in missing_columns[:5]:  # Show first 5
+            missing_details.append(f"  - {placeholder} → '{col_name}'")
+        
+        warning_msg = (
+            f"Warning: {len(missing_columns)} mapped column(s) not found in CSV.\n"
+            f"Available columns: {', '.join(sorted(csv_columns)[:10])}"
+            f"{'...' if len(csv_columns) > 10 else ''}\n\n"
+            f"Missing mappings:\n" + "\n".join(missing_details)
+        )
+        
+        if len(missing_columns) > 5:
+            warning_msg += f"\n  ... and {len(missing_columns) - 5} more"
+        
+        # Raise a descriptive error so users know what went wrong
+        raise ValueError(warning_msg)
+
     generated_files = []
     total_rows = len(df)
+    skipped_rows = []  # Track skipped rows for debugging
+    
+    print(f"[DEBUG] Starting to process {total_rows} CSV rows...")
     
     for idx, row in df.iterrows():
         if progress_callback:
@@ -332,38 +396,64 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
                 continue
             
             value = ""
+            all_columns_for_this_placeholder = []  # Track all columns used for this placeholder
             
-            # Check if it's a combination of columns (space-separated)
-            if isinstance(csv_spec, str) and ' ' in csv_spec:
-                # Combine multiple columns
+            # Handle empty csv_spec (unmapped placeholder)
+            if not csv_spec or csv_spec == "":
+                # Leave value as empty string - this is intentional for unmapped placeholders
+                mapping[placeholder] = value
+                continue
+            
+            # Check if it's a single column name (even if it contains spaces)
+            if isinstance(csv_spec, str) and csv_spec in row:
+                # It's a valid single column name, even if it has spaces
+                value = str(row[csv_spec]).strip()
+                all_columns_for_this_placeholder.append(csv_spec)
+            elif isinstance(csv_spec, str) and ' ' in csv_spec:
+                # It might be a combination of columns (space-separated)
                 parts = []
                 for col_name in csv_spec.split():
                     if col_name in row:
+                        all_columns_for_this_placeholder.append(col_name)
                         col_val = str(row[col_name]).strip()
                         if col_val:
                             parts.append(col_val)
                 value = ' '.join(parts)
-            elif isinstance(csv_spec, str):
-                # Single column - try it first
-                if csv_spec in row:
-                    value = str(row[csv_spec]).strip()
-                
-                # If empty, try fallback columns
-                if not value:
-                    fallback_key = f"{placeholder}_fallback"
-                    if fallback_key in field_mapping:
-                        fallback_cols = field_mapping[fallback_key]
-                        for col in fallback_cols:
-                            if col in row:
-                                val = str(row[col]).strip()
-                                if val:
-                                    value = val
-                                    break
+            
+            # Try fallback columns if value is still empty
+            if isinstance(csv_spec, str) and not value:
+                fallback_key = f"{placeholder}_fallback"
+                if fallback_key in field_mapping:
+                    fallback_cols = field_mapping[fallback_key]
+                    for col in fallback_cols:
+                        all_columns_for_this_placeholder.append(col)
+                        if col in row:
+                            val = str(row[col]).strip()
+                            if val:
+                                value = val
+                                break
             
             mapping[placeholder] = value
+            
+            # Check if ALL columns for this placeholder are empty
+            if all_columns_for_this_placeholder:
+                all_empty = all(not str(row[col]).strip() for col in all_columns_for_this_placeholder if col in row)
+                if all_empty:
+                    print(f"[DEBUG] Row {idx+1}: Skipping because all columns for {placeholder} are empty: {all_columns_for_this_placeholder}")
+                    skip_row = True
+                    break  # No need to check other placeholders
         
-        # Skip empty rows or rows without critical data
-        if not any(mapping.values()):
+        # Skip if any placeholder has all its columns empty
+        if skip_row:
+            skipped_rows.append(idx + 1)
+            continue
+        
+        # Skip ONLY if the row has no data at all in ANY CSV column
+        # This is more robust than checking mapped placeholders, which might be unmapped
+        row_has_data = any(str(row[col]).strip() for col in df.columns)
+        
+        if not row_has_data:
+            skipped_rows.append(idx + 1)  # +1 for 1-based row number
             continue
         
         # Open a new Document based on the template for EACH row
@@ -372,40 +462,60 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
         
         # Determine filename
         if filename_field:
+            print(f"[DEBUG] Row {idx+1}: Processing filename_field: '{filename_field}'")
             # Check if it's a combination of fields (space-separated)
             if ' ' in filename_field:
                 parts = []
                 for col_name in filename_field.split():
+                    print(f"[DEBUG]   Processing filename part: '{col_name}'")
                     # Check if it's a template placeholder
                     if col_name.startswith('__TEMPLATE__'):
                         # Extract placeholder name and use its mapped value
                         placeholder = col_name.replace('__TEMPLATE__', '')
+                        print(f"[DEBUG]     Template placeholder: {placeholder}")
                         if placeholder in mapping:
                             val = str(mapping[placeholder]).strip()
+                            print(f"[DEBUG]     Mapped value: '{val}'")
                             if val:
                                 parts.append(val)
+                        else:
+                            print(f"[DEBUG]     WARNING: {placeholder} not in mapping!")
                     elif col_name in row:
                         # Regular CSV column
                         col_val = str(row[col_name]).strip()
+                        print(f"[DEBUG]     CSV column value: '{col_val}'")
                         if col_val:
                             parts.append(col_val)
+                    else:
+                        print(f"[DEBUG]     WARNING: '{col_name}' not found in row columns")
                 base_name = slugify('_'.join(parts)) if parts else f"document_{idx}"
+                print(f"[DEBUG]   Final filename base: '{base_name}'")
             elif filename_field.startswith('__TEMPLATE__'):
                 # Single template placeholder
                 placeholder = filename_field.replace('__TEMPLATE__', '')
+                print(f"[DEBUG]   Single template placeholder: {placeholder}")
                 if placeholder in mapping:
                     base_name = slugify(str(mapping[placeholder]))
+                    print(f"[DEBUG]   Mapped to: '{base_name}'")
                 else:
+                    print(f"[DEBUG]   WARNING: {placeholder} not in mapping!")
                     base_name = f"document_{idx}"
             elif filename_field in row:
                 # Single CSV column
-                base_name = slugify(str(row[filename_field]))
+                col_val = str(row[filename_field])
+                base_name = slugify(col_val)
+                print(f"[DEBUG]   CSV column '{filename_field}' = '{col_val}' → slugified: '{base_name}'")
             else:
-                # Use first non-empty value as fallback
+                # Column not found - use first non-empty value as fallback
+                print(f"[DEBUG]   WARNING: filename_field '{filename_field}' not found in CSV columns!")
+                print(f"[DEBUG]   Available columns: {list(row.index)[:10]}...")
                 base_name = slugify(next((v for v in mapping.values() if v), f"document_{idx}"))
+                print(f"[DEBUG]   Using fallback: '{base_name}'")
         else:
-            # Use first non-empty value as fallback
+            # No filename field specified - use first non-empty value as fallback
+            print(f"[DEBUG] Row {idx+1}: No filename_field specified, using fallback")
             base_name = slugify(next((v for v in mapping.values() if v), f"document_{idx}"))
+            print(f"[DEBUG]   Fallback filename: '{base_name}'")
         
         fname = f"{filename_prefix}{base_name}{filename_suffix}.docx"
         out_path = os.path.join(outdir, fname)
@@ -426,6 +536,16 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for fp in generated_files:
                 zf.write(fp, arcname=os.path.basename(fp))
+    
+    # Debug output
+    print(f"[DEBUG] Document generation summary:")
+    print(f"[DEBUG]   - Total CSV rows: {total_rows}")
+    print(f"[DEBUG]   - Documents generated: {len(generated_files)}")
+    print(f"[DEBUG]   - Rows skipped: {len(skipped_rows)}")
+    if skipped_rows and len(skipped_rows) <= 10:
+        print(f"[DEBUG]   - Skipped row numbers: {', '.join(map(str, skipped_rows))}")
+    elif skipped_rows:
+        print(f"[DEBUG]   - Skipped row numbers (first 10): {', '.join(map(str, skipped_rows[:10]))}...")
     
     if progress_callback:
         progress_callback(total_rows, total_rows, f"Complete! Generated {len(generated_files)} files")

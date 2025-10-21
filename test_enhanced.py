@@ -399,6 +399,66 @@ def test_template_placeholder_in_filename():
         return False
 
 
+def test_missing_column_validation():
+    """Test that missing CSV columns are properly detected and reported"""
+    print("\nTesting missing column validation...")
+    try:
+        from templater_core import generate_documents
+        from docx import Document
+        
+        # Create test CSV
+        test_csv = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, newline='')
+        test_csv.write("first_name,last_name,amount\n")
+        test_csv.write("John,Doe,100\n")
+        test_csv.close()
+        
+        # Create test template
+        test_template = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
+        doc = Document()
+        doc.add_paragraph("{NAME} - {AMOUNT}")
+        doc.save(test_template.name)
+        test_template.close()
+        
+        output_dir = tempfile.mkdtemp()
+        
+        # Test with wrong column names (should raise ValueError)
+        field_mapping = {
+            '{NAME}': 'wrong_column',
+            '{AMOUNT}': 'wrong_amount'
+        }
+        
+        error_raised = False
+        try:
+            files, _ = generate_documents(
+                csv_path=test_csv.name,
+                template_path=test_template.name,
+                outdir=output_dir,
+                field_mapping=field_mapping,
+                make_zip=False
+            )
+        except ValueError as e:
+            error_msg = str(e)
+            if "not found in CSV" in error_msg and "wrong_column" in error_msg:
+                error_raised = True
+        
+        # Clean up
+        os.unlink(test_csv.name)
+        os.unlink(test_template.name)
+        shutil.rmtree(output_dir)
+        
+        if error_raised:
+            print("✓ Missing column validation works (raises helpful error)")
+        else:
+            print("✗ Missing column validation failed (should raise ValueError)")
+        
+        return error_raised
+    except Exception as e:
+        print(f"✗ Missing column validation test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main():
     print("=" * 60)
     print("Enhanced Features Test Suite")
@@ -412,6 +472,7 @@ def main():
     results.append(("Template Placeholder in Filename", test_template_placeholder_in_filename()))
     results.append(("Settings Persistence", test_settings_persistence()))
     results.append(("Enhanced GUI Import", test_gui_enhanced_import()))
+    results.append(("Missing Column Validation", test_missing_column_validation()))
     
     print("\n" + "=" * 60)
     print("Test Results Summary")

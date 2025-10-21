@@ -73,8 +73,12 @@ class FieldMappingRow:
         self.create_column_selector(0)
         
         # Combine checkbox
+        def on_combine_change():
+            print(f"[DEBUG] {self.placeholder} Combine checkbox changed to: {self.combine_var.get()}")
+            self._on_change()
+        
         ttk.Checkbutton(frame, text="Combine", variable=self.combine_var,
-                       command=self._on_change).grid(row=0, column=2, padx=5)
+                       command=on_combine_change).grid(row=0, column=2, padx=5)
         
         # Add column button
         add_btn = ttk.Button(frame, text="+", width=3, command=self.add_column_selector)
@@ -96,7 +100,20 @@ class FieldMappingRow:
         combo = ttk.Combobox(selector_frame, textvariable=var,
                            values=[''] + self.csv_columns, state="readonly", width=25)
         combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=2)
-        combo.bind('<<ComboboxSelected>>', lambda e: self._on_change())
+        
+        # Bind to selection event with debug output
+        def on_select(event):
+            # Force update to ensure StringVar is synced
+            combo.update_idletasks()
+            selected = combo.get()
+            print(f"[DEBUG] Combobox selected for {self.placeholder}: '{selected}'")
+            print(f"[DEBUG] StringVar value: '{var.get()}'")
+            if selected != var.get():
+                print(f"[DEBUG] WARNING: Mismatch! Setting var to '{selected}'")
+                var.set(selected)
+            self._on_change()
+        
+        combo.bind('<<ComboboxSelected>>', on_select)
         
         self.column_vars.append(var)
         
@@ -115,6 +132,9 @@ class FieldMappingRow:
     def remove_column_selector(self, idx):
         """Remove a column selector"""
         if len(self.column_vars) > 1:
+            print(f"[DEBUG] Removing column selector {idx} from {self.placeholder}")
+            print(f"[DEBUG] Before remove: {[v.get() for v in self.column_vars]}")
+            
             # Store current values
             current_values = [var.get() for var in self.column_vars]
             # Remove the value at index
@@ -131,22 +151,36 @@ class FieldMappingRow:
                 if value:
                     self.column_vars[i].set(value)
             
+            print(f"[DEBUG] After remove: {[v.get() for v in self.column_vars]}")
             self._on_change()
     
     def _on_change(self):
         """Callback when mapping changes"""
+        print(f"[DEBUG] {self.placeholder} mapping changed")
+        print(f"[DEBUG]   Current values: {[v.get() for v in self.column_vars]}")
         if self.on_change_callback:
             self.on_change_callback()
     
     def get_mapping(self):
         """Get the mapping configuration for this field"""
-        columns = [var.get() for var in self.column_vars if var.get()]
-        if not columns:
-            return None
+        # Debug: print what we're actually seeing
+        all_vars = [var.get() for var in self.column_vars]
+        combine_checked = self.combine_var.get()
         
+        print(f"[DEBUG] get_mapping() for {self.placeholder}:")
+        print(f"[DEBUG]   - Total column_vars: {len(self.column_vars)}")
+        print(f"[DEBUG]   - All values: {all_vars}")
+        print(f"[DEBUG]   - Non-empty values: {[v for v in all_vars if v]}")
+        print(f"[DEBUG]   - Combine checkbox: {combine_checked} (type: {type(combine_checked)})")
+        
+        columns = [var.get() for var in self.column_vars if var.get()]
+        
+        # IMPORTANT: Always return a mapping object, even if no columns selected
+        # This preserves the number of dropdowns when saving/loading config
         return {
-            'columns': columns,
-            'combine': self.combine_var.get()
+            'columns': columns if columns else [],
+            'combine': combine_checked,
+            'num_dropdowns': len(self.column_vars)  # Save the number of dropdowns
         }
     
     def set_mapping(self, mapping_config):
@@ -156,20 +190,28 @@ class FieldMappingRow:
         
         columns = mapping_config.get('columns', [])
         combine = mapping_config.get('combine', False)
+        num_dropdowns = mapping_config.get('num_dropdowns', max(1, len(columns)))  # Default to at least 1 or number of columns
+        
+        print(f"[DEBUG] set_mapping() for {self.placeholder}:")
+        print(f"[DEBUG]   - Config columns: {columns}")
+        print(f"[DEBUG]   - Config num_dropdowns: {num_dropdowns}")
         
         # Clear existing
         for widget in self.columns_frame.winfo_children():
             widget.destroy()
         self.column_vars.clear()
         
-        # Add selectors for saved columns
-        for i, col in enumerate(columns):
+        # Create the correct number of dropdowns
+        for i in range(num_dropdowns):
             self.create_column_selector(i)
-            if i < len(self.column_vars):
-                self.column_vars[i].set(col)
+            # Set the column value if available
+            if i < len(columns) and columns[i]:
+                self.column_vars[i].set(columns[i])
         
         # Set combine checkbox
         self.combine_var.set(combine)
+        
+        print(f"[DEBUG]   - Created {len(self.column_vars)} dropdowns with values: {[v.get() for v in self.column_vars]}")
 
 
 class EnhancedTemplaterGUI:
@@ -185,6 +227,7 @@ class EnhancedTemplaterGUI:
         self.template_placeholders = []
         self.field_mapping_rows = {}
         self.config_dir = get_config_dir()
+        self.csv_row_count = 0  # Track number of rows in CSV
         
         self.create_menu()
         self.create_widgets()
@@ -288,6 +331,10 @@ See the LICENSE file for full details.
         self.csv_label = ttk.Label(file_frame, text="No file selected", foreground="gray")
         self.csv_label.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
         ttk.Button(file_frame, text="Browse...", command=self.select_csv).grid(row=0, column=2, padx=5)
+        
+        # CSV row count info
+        self.csv_info_label = ttk.Label(file_frame, text="", foreground="blue", font=('TkDefaultFont', 8))
+        self.csv_info_label.grid(row=0, column=3, sticky=tk.W, padx=5)
         
         # Template file
         ttk.Label(file_frame, text="Template:").grid(row=1, column=0, sticky=tk.W, pady=5)
@@ -421,27 +468,45 @@ See the LICENSE file for full details.
     
     def load_csv(self, filepath):
         try:
+            print(f"[DEBUG] Loading CSV file: {filepath}")
             self.csv_path = filepath
             self.csv_label.config(text=os.path.basename(filepath), foreground="black")
             
             # Read CSV to get columns
             df = read_csv_any(filepath)
             self.csv_columns = list(df.columns)
+            self.csv_row_count = len(df)
+            
+            print(f"[DEBUG] CSV loaded successfully:")
+            print(f"[DEBUG]   - Total rows: {self.csv_row_count}")
+            print(f"[DEBUG]   - Total columns: {len(self.csv_columns)}")
+            print(f"[DEBUG]   - Column names: {', '.join(self.csv_columns[:10])}")
+            if len(self.csv_columns) > 10:
+                print(f"[DEBUG]     ... and {len(self.csv_columns) - 10} more")
+            
+            # Update UI with row count
+            self.csv_info_label.config(text=f"({self.csv_row_count} rows)")
             
             # Update filename field comboboxes
             self.filename_field1_combo['values'] = [''] + self.csv_columns
             self.filename_field2_combo['values'] = [''] + self.csv_columns
-            if self.csv_columns:
-                self.filename_field1_var.set(self.csv_columns[0])
-                self.filename_field2_var.set('')  # Second field is optional
+            # Don't auto-select the first column - let user choose or config load it
+            # if self.csv_columns:
+            #     self.filename_field1_var.set(self.csv_columns[0])
+            #     self.filename_field2_var.set('')  # Second field is optional
             
             self.update_mapping_ui()
-            self.load_config()
+            # Config save/load removed
             self.check_ready_to_generate()
         except Exception as e:
+            print(f"[DEBUG] Error loading CSV: {e}")
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Error", f"Failed to read CSV file:\n{e}")
             self.csv_path = None
+            self.csv_row_count = 0
             self.csv_label.config(text="No file selected", foreground="gray")
+            self.csv_info_label.config(text="")
     
     def select_template(self):
         filepath = filedialog.askopenfilename(
@@ -453,19 +518,27 @@ See the LICENSE file for full details.
     
     def load_template(self, filepath):
         try:
+            print(f"[DEBUG] Loading template file: {filepath}")
             self.template_path = filepath
             self.template_label.config(text=os.path.basename(filepath), foreground="black")
             
             # Get placeholders from template
             self.template_placeholders = get_placeholders_from_template(filepath)
             
+            print(f"[DEBUG] Template loaded successfully:")
+            print(f"[DEBUG]   - Placeholders found: {len(self.template_placeholders)}")
+            print(f"[DEBUG]   - Placeholders: {', '.join(self.template_placeholders)}")
+            
             # Update template field dropdown for filename configuration
             self.filename_template_combo['values'] = [''] + self.template_placeholders
             
             self.update_mapping_ui()
-            self.load_config()
+            # Config save/load removed
             self.check_ready_to_generate()
         except Exception as e:
+            print(f"[DEBUG] Error loading template: {e}")
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Error", f"Failed to read template file:\n{e}")
             self.template_path = None
             self.template_label.config(text="No file selected", foreground="gray")
@@ -478,10 +551,14 @@ See the LICENSE file for full details.
             self.check_ready_to_generate()
     
     def update_mapping_ui(self):
+        print("[DEBUG] ========== update_mapping_ui() called ==========")
+        print(f"[DEBUG] This will DESTROY and RECREATE all mapping rows!")
+        
         # Clear existing mapping widgets
         for widget in self.mapping_scrollframe.winfo_children():
             widget.destroy()
         self.field_mapping_rows.clear()
+        print(f"[DEBUG] All mapping rows cleared")
         
         if not self.template_placeholders or not self.csv_columns:
             if not self.template_placeholders and not self.csv_columns:
@@ -534,7 +611,16 @@ See the LICENSE file for full details.
     
     def on_mapping_change(self):
         """Callback when any mapping changes"""
-        self.save_config()
+        # Config save/load removed - no action needed
+        pass
+    
+    def on_filename_change(self):
+        """Callback when filename configuration changes"""
+        print(f"[DEBUG] Filename field changed:")
+        print(f"[DEBUG]   CSV Field 1: '{self.filename_field1_var.get()}'")
+        print(f"[DEBUG]   CSV Field 2: '{self.filename_field2_var.get()}'")
+        print(f"[DEBUG]   Template Field: '{self.filename_template_var.get()}'")
+        # Config save/load removed - no action needed
     
     def get_config_path(self):
         """Get the config file path for current csv+template combination"""
@@ -544,83 +630,18 @@ See the LICENSE file for full details.
         config_key = get_config_key(self.csv_path, self.template_path)
         return self.config_dir / f"{config_key}.json"
     
+    # Config save/load functionality removed - functions kept for compatibility but do nothing
     def save_config(self):
-        """Save current configuration"""
-        config_path = self.get_config_path()
-        if not config_path:
-            return
-        
-        config = {
-            'csv_path': self.csv_path,
-            'template_path': self.template_path,
-            'mappings': {},
-            'filename_field1': self.filename_field1_var.get(),
-            'filename_field2': self.filename_field2_var.get(),
-            'filename_template': self.filename_template_var.get(),
-            'prefix': self.prefix_var.get(),
-            'suffix': self.suffix_var.get(),
-            'create_zip': self.zip_var.get()
-        }
-        
-        # Save all field mappings
-        for placeholder, row in self.field_mapping_rows.items():
-            mapping = row.get_mapping()
-            if mapping:
-                config['mappings'][placeholder] = mapping
-        
-        try:
-            with open(config_path, 'w') as f:
-                json.dump(config, f, indent=2)
-        except Exception as e:
-            print(f"Failed to save config: {e}")
+        """Save current configuration - DISABLED"""
+        pass
     
     def load_config(self):
-        """Load saved configuration"""
-        config_path = self.get_config_path()
-        if not config_path or not config_path.exists():
-            return
-        
-        try:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-            
-            # Load field mappings
-            mappings = config.get('mappings', {})
-            for placeholder, mapping_config in mappings.items():
-                if placeholder in self.field_mapping_rows:
-                    self.field_mapping_rows[placeholder].set_mapping(mapping_config)
-            
-            # Load filename configuration
-            self.filename_field1_var.set(config.get('filename_field1', config.get('filename_field', '')))  # Backward compatibility
-            self.filename_field2_var.set(config.get('filename_field2', ''))
-            self.filename_template_var.set(config.get('filename_template', ''))
-            self.prefix_var.set(config.get('prefix', ''))
-            self.suffix_var.set(config.get('suffix', ''))
-            self.zip_var.set(config.get('create_zip', False))
-            
-            self.progress_var.set("Configuration loaded")
-        except Exception as e:
-            print(f"Failed to load config: {e}")
+        """Load saved configuration - DISABLED"""
+        pass
     
     def reset_config(self):
-        """Reset configuration for current csv+template combination"""
-        config_path = self.get_config_path()
-        if config_path and config_path.exists():
-            try:
-                config_path.unlink()
-                self.progress_var.set("Configuration reset")
-                # Reload UI
-                self.update_mapping_ui()
-                self.filename_field1_var.set('')
-                self.filename_field2_var.set('')
-                self.filename_template_var.set('')
-                self.prefix_var.set('')
-                self.suffix_var.set('')
-                self.zip_var.set(False)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to reset config:\n{e}")
-        else:
-            messagebox.showinfo("Info", "No saved configuration to reset")
+        """Reset configuration - DISABLED"""
+        pass
     
     def check_ready_to_generate(self):
         if (self.csv_path and self.template_path and 
@@ -630,42 +651,137 @@ See the LICENSE file for full details.
             self.generate_btn.config(state="disabled")
     
     def generate_documents(self):
+        print("\n[DEBUG] ========== Starting document generation ==========")
+        print(f"[DEBUG] CSV rows expected: {self.csv_row_count}")
+        
         # Build field mapping with priority and combination support
         field_mapping = {}
+        unmapped_placeholders = []
+        
         for placeholder, row in self.field_mapping_rows.items():
             mapping = row.get_mapping()
-            if mapping:
+            # Debug: show what get_mapping() returns
+            print(f"[DEBUG] {placeholder} get_mapping() returned: {mapping}")
+            
+            if mapping and mapping.get('columns'):  # Check if there are actually columns selected
                 columns = mapping['columns']
                 combine = mapping['combine']
                 
                 if combine and len(columns) > 1:
                     # Combine columns with space
                     field_mapping[placeholder] = ' '.join(columns)
+                    print(f"[DEBUG] Mapping {placeholder} = combine({', '.join(columns)})")
                 else:
                     # Use priority - first available non-empty column
-                    field_mapping[placeholder] = columns[0] if columns else None
+                    field_mapping[placeholder] = columns[0] if columns else ''
+                    if columns:
+                        print(f"[DEBUG] Mapping {placeholder} = {columns[0]}")
                     # Store additional columns for fallback
                     if len(columns) > 1:
                         field_mapping[f"{placeholder}_fallback"] = columns[1:]
+                        print(f"[DEBUG]   Fallback: {', '.join(columns[1:])}")
+            else:
+                # Placeholder has no mapping or all dropdowns are empty
+                # Debug: show the column vars to understand why
+                column_values = [var.get() for var in row.column_vars]
+                print(f"[DEBUG] {placeholder} has {len(row.column_vars)} column selector(s)")
+                print(f"[DEBUG] {placeholder} column_vars values: {column_values}")
+                print(f"[DEBUG] {placeholder} combine checkbox: {row.combine_var.get()}")
+                
+                # If user added multiple selectors but didn't fill them, explain that
+                if len(row.column_vars) > 1:
+                    print(f"[DEBUG] {placeholder} has {len(row.column_vars)} dropdowns but all are empty")
+                    print(f"[DEBUG] → You need to SELECT columns in each dropdown, not just add dropdowns")
+                elif len(row.column_vars) == 1 and not column_values[0]:
+                    print(f"[DEBUG] {placeholder} has 1 dropdown but it's empty")
+                    print(f"[DEBUG] → Select a column from the dropdown")
+                
+                unmapped_placeholders.append(placeholder)
+                print(f"[DEBUG] WARNING: {placeholder} has no CSV column mapping (will be empty in documents)")
         
         if not field_mapping:
+            print("[DEBUG] No field mappings configured")
             messagebox.showwarning("Warning", "No field mappings configured. Please map at least one field.")
             return
+        
+        # Warn about unmapped placeholders
+        if unmapped_placeholders:
+            unmapped_details = []
+            for placeholder in unmapped_placeholders:
+                row = self.field_mapping_rows.get(placeholder)
+                if row:
+                    num_dropdowns = len(row.column_vars)
+                    num_filled = sum(1 for var in row.column_vars if var.get())
+                    if num_dropdowns > 1 and num_filled == 0:
+                        unmapped_details.append(f"  • {placeholder} — {num_dropdowns} dropdowns added but all empty (select columns!)")
+                    elif num_dropdowns == 1 and num_filled == 0:
+                        unmapped_details.append(f"  • {placeholder} — dropdown is empty (select a column!)")
+                    else:
+                        unmapped_details.append(f"  • {placeholder} — no mapping configured")
+                else:
+                    unmapped_details.append(f"  • {placeholder}")
+            
+            warning_msg = (
+                f"⚠️ Warning: {len(unmapped_placeholders)} placeholder(s) in the template have no CSV column mapping:\n\n"
+                f"{chr(10).join(unmapped_details)}\n\n"
+                f"These placeholders will be left EMPTY in generated documents.\n\n"
+                f"Do you want to continue anyway?"
+            )
+            print(f"[DEBUG] WARNING: Unmapped placeholders detected: {', '.join(unmapped_placeholders)}")
+            
+            if not messagebox.askyesno("Unmapped Placeholders", warning_msg):
+                print("[DEBUG] User cancelled generation due to unmapped placeholders")
+                return
+            
+            # Add empty mappings for unmapped placeholders so they don't cause all rows to be skipped
+            for placeholder in unmapped_placeholders:
+                field_mapping[placeholder] = ""
+                print(f"[DEBUG] Adding empty mapping for {placeholder}")
         
         # Get filename configuration
         filename_field1 = self.filename_field1_var.get() or None
         filename_field2 = self.filename_field2_var.get() or None
         filename_template = self.filename_template_var.get() or None
         
+        print(f"[DEBUG] Filename config RAW:")
+        print(f"[DEBUG]   field1_var.get() = '{self.filename_field1_var.get()}'")
+        print(f"[DEBUG]   field1_combo.get() = '{self.filename_field1_combo.get()}'")  # Check combo directly
+        print(f"[DEBUG]   field2_var.get() = '{self.filename_field2_var.get()}'")
+        print(f"[DEBUG]   field2_combo.get() = '{self.filename_field2_combo.get()}'")  # Check combo directly
+        print(f"[DEBUG]   template_var.get() = '{self.filename_template_var.get()}'")
+        print(f"[DEBUG]   template_combo.get() = '{self.filename_template_combo.get()}'")  # Check combo directly
+        
+        # Force sync from combobox to StringVar in case they're out of sync
+        if self.filename_field1_combo.get() and not self.filename_field1_var.get():
+            print(f"[DEBUG] WARNING: Syncing field1 from combo to var")
+            self.filename_field1_var.set(self.filename_field1_combo.get())
+            filename_field1 = self.filename_field1_combo.get()
+        
+        if self.filename_field2_combo.get() and not self.filename_field2_var.get():
+            print(f"[DEBUG] WARNING: Syncing field2 from combo to var")
+            self.filename_field2_var.set(self.filename_field2_combo.get())
+            filename_field2 = self.filename_field2_combo.get()
+        
+        if self.filename_template_combo.get() and not self.filename_template_var.get():
+            print(f"[DEBUG] WARNING: Syncing template from combo to var")
+            self.filename_template_var.set(self.filename_template_combo.get())
+            filename_template = self.filename_template_combo.get()
+        
+        print(f"[DEBUG] Filename config (after sync and 'or None'):")
+        print(f"[DEBUG]   field1={filename_field1}, field2={filename_field2}, template={filename_template}")
+        
         # Build filename parts list
         filename_parts = []
         if filename_field1:
             filename_parts.append(filename_field1)
+            print(f"[DEBUG]   Added field1 to parts: '{filename_field1}'")
         if filename_field2:
             filename_parts.append(filename_field2)
+            print(f"[DEBUG]   Added field2 to parts: '{filename_field2}'")
         if filename_template:
             # Template placeholders will be replaced with actual values
             filename_parts.append(f"__TEMPLATE__{filename_template}")
+            print(f"[DEBUG]   Added template to parts: '__TEMPLATE__{filename_template}'")
         
         # Combine filename fields
         filename_field = ' '.join(filename_parts) if filename_parts else None
@@ -674,8 +790,10 @@ See the LICENSE file for full details.
         suffix = self.suffix_var.get()
         make_zip = self.zip_var.get()
         
-        # Save configuration before generating
-        self.save_config()
+        print(f"[DEBUG] Filename field combined: '{filename_field}'")
+        print(f"[DEBUG] Output config: prefix='{prefix}', suffix='{suffix}', zip={make_zip}")
+        
+        # Config save/load removed
         
         # Disable generate button during processing
         self.generate_btn.config(state="disabled")
@@ -694,6 +812,7 @@ See the LICENSE file for full details.
             self.root.after(0, lambda: self.progress_var.set(message))
         
         try:
+            print(f"[DEBUG] Calling generate_documents()...")
             generated_files, zip_path = generate_documents(
                 csv_path=self.csv_path,
                 template_path=self.template_path,
@@ -706,13 +825,39 @@ See the LICENSE file for full details.
                 progress_callback=progress_callback
             )
             
-            message = f"Success! Generated {len(generated_files)} documents"
-            if zip_path:
-                message += f"\nZIP archive: {os.path.basename(zip_path)}"
+            print(f"[DEBUG] Generation complete:")
+            print(f"[DEBUG]   - CSV rows: {self.csv_row_count}")
+            print(f"[DEBUG]   - Documents generated: {len(generated_files)}")
+            print(f"[DEBUG]   - Difference: {self.csv_row_count - len(generated_files)} rows skipped")
             
-            self.root.after(0, lambda: messagebox.showinfo("Success", message))
-            self.root.after(0, lambda: self.progress_var.set(f"Complete - {len(generated_files)} files generated"))
+            # Check if there's a mismatch between CSV rows and generated documents
+            if len(generated_files) < self.csv_row_count:
+                skipped = self.csv_row_count - len(generated_files)
+                message = (
+                    f"Generated {len(generated_files)} documents from {self.csv_row_count} CSV rows.\n\n"
+                    f"⚠️ {skipped} rows were skipped because they had NO data in ANY column.\n"
+                    f"(Empty rows are automatically skipped)\n\n"
+                    f"Note: Unmapped placeholders (like {{NOM}}) are OK - they just appear empty in documents."
+                )
+                if zip_path:
+                    message += f"\n\nZIP archive: {os.path.basename(zip_path)}"
+                
+                print(f"[DEBUG] WARNING: Mismatch detected - {skipped} rows skipped")
+                self.root.after(0, lambda: messagebox.showwarning("Partial Success", message))
+                self.root.after(0, lambda: self.progress_var.set(
+                    f"Complete - {len(generated_files)}/{self.csv_row_count} files generated ({skipped} skipped)"
+                ))
+            else:
+                message = f"Success! Generated {len(generated_files)} documents"
+                if zip_path:
+                    message += f"\nZIP archive: {os.path.basename(zip_path)}"
+                
+                self.root.after(0, lambda: messagebox.showinfo("Success", message))
+                self.root.after(0, lambda: self.progress_var.set(f"Complete - {len(generated_files)} files generated"))
         except Exception as e:
+            print(f"[DEBUG] Error during generation: {e}")
+            import traceback
+            traceback.print_exc()
             self.root.after(0, lambda: messagebox.showerror("Error", f"Generation failed:\n{e}"))
             self.root.after(0, lambda: self.progress_var.set("Error occurred"))
         finally:
