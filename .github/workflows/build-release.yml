@@ -1,0 +1,137 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Test core module
+        run: |
+          python -c "import templater_core; print('Core module imported successfully')"
+      
+      - name: Test GUI module import
+        run: |
+          python -c "import templater_gui; print('GUI module imported successfully')"
+
+  build:
+    needs: test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: CSVTemplater-Linux
+            asset_extension: ''
+          - os: windows-latest
+            artifact_name: CSVTemplater-Windows
+            asset_extension: .exe
+          - os: macos-latest
+            artifact_name: CSVTemplater-macOS
+            asset_extension: .app
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller templater.spec
+      
+      - name: Prepare artifact (Linux/Windows)
+        if: runner.os != 'macOS'
+        run: |
+          mkdir release
+          cp -r dist/CSVTemplater${{ matrix.asset_extension }} release/
+      
+      - name: Prepare artifact (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir release
+          cp -r dist/CSVTemplater.app release/
+      
+      - name: Create archive (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd release
+          tar -czf ${{ matrix.artifact_name }}.tar.gz CSVTemplater
+          cd ..
+          mv release/${{ matrix.artifact_name }}.tar.gz .
+      
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd release
+          Compress-Archive -Path CSVTemplater.exe -DestinationPath ${{ matrix.artifact_name }}.zip
+          cd ..
+          Move-Item release/${{ matrix.artifact_name }}.zip .
+      
+      - name: Create archive (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd release
+          zip -r ${{ matrix.artifact_name }}.zip CSVTemplater.app
+          cd ..
+          mv release/${{ matrix.artifact_name }}.zip .
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            *.tar.gz
+            *.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: List artifacts
+        run: |
+          find artifacts -type f
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
