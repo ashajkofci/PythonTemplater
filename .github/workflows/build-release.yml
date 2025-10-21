@@ -5,10 +5,81 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version_increment:
+        description: 'Version increment type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    outputs:
+      new_version: ${{ steps.increment.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          # Get the latest tag, default to v0.0.0 if none exists
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "Latest tag: $LATEST_TAG"
+      
+      - name: Increment version
+        id: increment
+        run: |
+          LATEST_TAG="${{ steps.get_tag.outputs.latest_tag }}"
+          # Remove 'v' prefix
+          VERSION=${LATEST_TAG#v}
+          
+          # Split version into major.minor.patch
+          IFS='.' read -ra VERSION_PARTS <<< "$VERSION"
+          MAJOR=${VERSION_PARTS[0]:-0}
+          MINOR=${VERSION_PARTS[1]:-0}
+          PATCH=${VERSION_PARTS[2]:-0}
+          
+          # Increment based on input
+          case "${{ github.event.inputs.version_increment }}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+          
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+      
+      - name: Create and push tag
+        run: |
+          NEW_VERSION="${{ steps.increment.outputs.new_version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+          git push origin "$NEW_VERSION"
+
   test:
     runs-on: ubuntu-latest
+    needs: [version]
+    if: always() && (needs.version.result == 'success' || needs.version.result == 'skipped')
     steps:
       - uses: actions/checkout@v4
       
@@ -30,7 +101,7 @@ jobs:
     needs: test
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-13]  # macos-13 is x64, macos-latest is ARM
         include:
           - os: ubuntu-latest
             artifact_name: CSVTemplater-Linux
@@ -38,8 +109,8 @@ jobs:
           - os: windows-latest
             artifact_name: CSVTemplater-Windows
             asset_extension: .exe
-          - os: macos-latest
-            artifact_name: CSVTemplater-macOS
+          - os: macos-13
+            artifact_name: CSVTemplater-macOS-x64
             asset_extension: .app
     
     runs-on: ${{ matrix.os }}
@@ -89,9 +160,37 @@ jobs:
           cd ..
           Move-Item release/${{ matrix.artifact_name }}.zip .
       
-      - name: Create archive (macOS)
+      - name: Create DMG (macOS)
         if: runner.os == 'macOS'
         run: |
+          # Install create-dmg
+          brew install create-dmg
+          
+          # Create a temporary directory for DMG contents
+          mkdir -p dmg-temp
+          cp -r dist/CSVTemplater.app dmg-temp/
+          
+          # Create the DMG
+          create-dmg \
+            --volname "CSVTemplater" \
+            --volicon "dist/CSVTemplater.app/Contents/Resources/icon-windowed.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "CSVTemplater.app" 175 120 \
+            --hide-extension "CSVTemplater.app" \
+            --app-drop-link 425 120 \
+            "${{ matrix.artifact_name }}.dmg" \
+            "dmg-temp/" \
+            || true  # create-dmg returns non-zero even on success
+          
+          # If create-dmg failed, fall back to hdiutil
+          if [ ! -f "${{ matrix.artifact_name }}.dmg" ]; then
+            echo "create-dmg failed, using hdiutil..."
+            hdiutil create -volname "CSVTemplater" -srcfolder dmg-temp -ov -format UDZO "${{ matrix.artifact_name }}.dmg"
+          fi
+          
+          # Also create a ZIP for compatibility
           cd release
           zip -r ${{ matrix.artifact_name }}.zip CSVTemplater.app
           cd ..
@@ -104,11 +203,12 @@ jobs:
           path: |
             *.tar.gz
             *.zip
+            *.dmg
 
   release:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: always() && needs.build.result == 'success' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
     
     steps:
       - uses: actions/checkout@v4
@@ -125,9 +225,11 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && needs.version.outputs.new_version || github.ref_name }}
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
+            artifacts/**/*.dmg
           draft: false
           prerelease: false
         env:
