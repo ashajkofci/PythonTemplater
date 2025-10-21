@@ -21,13 +21,9 @@ jobs:
         run: |
           pip install -r requirements.txt
       
-      - name: Test core module
+      - name: Run test suite
         run: |
-          python -c "import templater_core; print('Core module imported successfully')"
-      
-      - name: Test GUI module import
-        run: |
-          python -c "import templater_gui; print('GUI module imported successfully')"
+          python test_modules.py
 
   build:
     needs: test
