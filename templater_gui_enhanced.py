@@ -96,7 +96,14 @@ class FieldMappingRow:
         combo = ttk.Combobox(selector_frame, textvariable=var,
                            values=[''] + self.csv_columns, state="readonly", width=25)
         combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=2)
-        combo.bind('<<ComboboxSelected>>', lambda e: self._on_change())
+        
+        # Debug: log when selection changes
+        def on_combo_select(event):
+            selected_value = var.get()
+            print(f"[DEBUG] Combo selection changed for {self.placeholder} dropdown {idx+1}: '{selected_value}'")
+            self._on_change()
+        
+        combo.bind('<<ComboboxSelected>>', on_combo_select)
         
         self.column_vars.append(var)
         
@@ -135,6 +142,10 @@ class FieldMappingRow:
     
     def _on_change(self):
         """Callback when mapping changes"""
+        # Debug: show current state when change is triggered
+        current_values = [var.get() for var in self.column_vars]
+        print(f"[DEBUG] {self.placeholder} _on_change triggered, current values: {current_values}")
+        
         if self.on_change_callback:
             self.on_change_callback()
     
