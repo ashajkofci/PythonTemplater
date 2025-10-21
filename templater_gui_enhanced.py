@@ -592,26 +592,35 @@ See the LICENSE file for full details.
             if mapping:
                 config['mappings'][placeholder] = mapping
         
+        print(f"[DEBUG] Saving config to {config_path}")
+        print(f"[DEBUG] Mappings being saved: {config['mappings']}")
+        
         try:
             with open(config_path, 'w') as f:
                 json.dump(config, f, indent=2)
+            print(f"[DEBUG] Config saved successfully")
         except Exception as e:
-            print(f"Failed to save config: {e}")
+            print(f"[DEBUG] Failed to save config: {e}")
     
     def load_config(self):
         """Load saved configuration"""
         config_path = self.get_config_path()
         if not config_path or not config_path.exists():
+            print(f"[DEBUG] No config file to load")
             return
         
         try:
+            print(f"[DEBUG] Loading config from {config_path}")
             with open(config_path, 'r') as f:
                 config = json.load(f)
+            
+            print(f"[DEBUG] Mappings loaded from config: {config.get('mappings', {})}")
             
             # Load field mappings
             mappings = config.get('mappings', {})
             for placeholder, mapping_config in mappings.items():
                 if placeholder in self.field_mapping_rows:
+                    print(f"[DEBUG] Setting mapping for {placeholder}: {mapping_config}")
                     self.field_mapping_rows[placeholder].set_mapping(mapping_config)
             
             # Load filename configuration
@@ -623,8 +632,11 @@ See the LICENSE file for full details.
             self.zip_var.set(config.get('create_zip', False))
             
             self.progress_var.set("Configuration loaded")
+            print(f"[DEBUG] Config loaded successfully")
         except Exception as e:
-            print(f"Failed to load config: {e}")
+            print(f"[DEBUG] Failed to load config: {e}")
+            import traceback
+            traceback.print_exc()
     
     def reset_config(self):
         """Reset configuration for current csv+template combination"""
@@ -686,8 +698,18 @@ See the LICENSE file for full details.
                 # Placeholder has no mapping - track it
                 # Debug: show the column vars to understand why mapping is None
                 column_values = [var.get() for var in row.column_vars]
+                print(f"[DEBUG] {placeholder} has {len(row.column_vars)} column selector(s)")
                 print(f"[DEBUG] {placeholder} column_vars values: {column_values}")
                 print(f"[DEBUG] {placeholder} combine checkbox: {row.combine_var.get()}")
+                
+                # If user added multiple selectors but didn't fill them, explain that
+                if len(row.column_vars) > 1:
+                    print(f"[DEBUG] {placeholder} has {len(row.column_vars)} dropdowns but all are empty")
+                    print(f"[DEBUG] → You need to SELECT columns in each dropdown, not just add dropdowns")
+                elif len(row.column_vars) == 1 and not column_values[0]:
+                    print(f"[DEBUG] {placeholder} has 1 dropdown but it's empty")
+                    print(f"[DEBUG] → Select a column from the dropdown")
+                
                 unmapped_placeholders.append(placeholder)
                 print(f"[DEBUG] WARNING: {placeholder} has no CSV column mapping (will be empty in documents)")
         
