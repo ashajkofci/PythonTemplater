@@ -254,6 +254,7 @@ DOCX documents from CSV data and templates.
 
 Author: Adrian Shajkofci
 License: BSD-3-Clause
+GitHub: https://github.com/ashajkofci/PythonTemplater
 
 Features:
 • Multi-column mapping with priority
