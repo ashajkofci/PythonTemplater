@@ -350,6 +350,7 @@ See the LICENSE file for full details.
         self.filename_field1_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field1_var, 
                                                  state="readonly")
         self.filename_field1_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        self.filename_field1_combo.bind('<<ComboboxSelected>>', lambda e: self.save_config())
         
         # Filename field 2 (CSV column, optional)
         ttk.Label(filename_frame, text="CSV Field 2:").grid(row=1, column=0, sticky=tk.W, pady=5)
@@ -357,6 +358,7 @@ See the LICENSE file for full details.
         self.filename_field2_combo = ttk.Combobox(filename_frame, textvariable=self.filename_field2_var, 
                                                  state="readonly")
         self.filename_field2_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        self.filename_field2_combo.bind('<<ComboboxSelected>>', lambda e: self.save_config())
         
         # Template placeholder (optional)
         ttk.Label(filename_frame, text="Template Field:").grid(row=2, column=0, sticky=tk.W, pady=5)
@@ -364,13 +366,16 @@ See the LICENSE file for full details.
         self.filename_template_combo = ttk.Combobox(filename_frame, textvariable=self.filename_template_var, 
                                                     state="readonly")
         self.filename_template_combo.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        self.filename_template_combo.bind('<<ComboboxSelected>>', lambda e: self.save_config())
         
         ttk.Label(filename_frame, text="Prefix:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.prefix_var = tk.StringVar(value="")
+        self.prefix_var.trace_add('write', lambda *args: self.save_config())
         ttk.Entry(filename_frame, textvariable=self.prefix_var).grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
         ttk.Label(filename_frame, text="Suffix:").grid(row=4, column=0, sticky=tk.W, pady=5)
         self.suffix_var = tk.StringVar(value="")
+        self.suffix_var.trace_add('write', lambda *args: self.save_config())
         ttk.Entry(filename_frame, textvariable=self.suffix_var).grid(row=4, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         
         # === Options Section ===
@@ -379,7 +384,8 @@ See the LICENSE file for full details.
         current_row += 1
         
         self.zip_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(options_frame, text="Create ZIP archive", variable=self.zip_var).grid(row=0, column=0, sticky=tk.W)
+        ttk.Checkbutton(options_frame, text="Create ZIP archive", variable=self.zip_var, 
+                       command=self.save_config).grid(row=0, column=0, sticky=tk.W)
         
         # === Progress Section ===
         progress_frame = ttk.Frame(main_frame)
