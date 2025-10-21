@@ -431,10 +431,11 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
             
             mapping[placeholder] = value
         
-        # Skip empty rows or rows without critical data
-        # Only skip if ALL values are empty (including unmapped placeholders that were set to "")
-        # But be lenient: if at least ONE placeholder has data, generate the document
-        if not any(v for v in mapping.values() if v):  # More explicit: check for non-empty strings
+        # Skip ONLY if the row has no data at all in ANY CSV column
+        # This is more robust than checking mapped placeholders, which might be unmapped
+        row_has_data = any(str(row[col]).strip() for col in df.columns)
+        
+        if not row_has_data:
             skipped_rows.append(idx + 1)  # +1 for 1-based row number
             continue
         

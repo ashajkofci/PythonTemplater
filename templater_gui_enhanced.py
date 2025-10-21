@@ -96,7 +96,20 @@ class FieldMappingRow:
         combo = ttk.Combobox(selector_frame, textvariable=var,
                            values=[''] + self.csv_columns, state="readonly", width=25)
         combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=2)
-        combo.bind('<<ComboboxSelected>>', lambda e: self._on_change())
+        
+        # Bind to selection event with debug output
+        def on_select(event):
+            # Force update to ensure StringVar is synced
+            combo.update_idletasks()
+            selected = combo.get()
+            print(f"[DEBUG] Combobox selected for {self.placeholder}: '{selected}'")
+            print(f"[DEBUG] StringVar value: '{var.get()}'")
+            if selected != var.get():
+                print(f"[DEBUG] WARNING: Mismatch! Setting var to '{selected}'")
+                var.set(selected)
+            self._on_change()
+        
+        combo.bind('<<ComboboxSelected>>', on_select)
         
         self.column_vars.append(var)
         
@@ -115,6 +128,9 @@ class FieldMappingRow:
     def remove_column_selector(self, idx):
         """Remove a column selector"""
         if len(self.column_vars) > 1:
+            print(f"[DEBUG] Removing column selector {idx} from {self.placeholder}")
+            print(f"[DEBUG] Before remove: {[v.get() for v in self.column_vars]}")
+            
             # Store current values
             current_values = [var.get() for var in self.column_vars]
             # Remove the value at index
@@ -131,22 +147,33 @@ class FieldMappingRow:
                 if value:
                     self.column_vars[i].set(value)
             
+            print(f"[DEBUG] After remove: {[v.get() for v in self.column_vars]}")
             self._on_change()
     
     def _on_change(self):
         """Callback when mapping changes"""
+        print(f"[DEBUG] {self.placeholder} mapping changed")
+        print(f"[DEBUG]   Current values: {[v.get() for v in self.column_vars]}")
         if self.on_change_callback:
             self.on_change_callback()
     
     def get_mapping(self):
         """Get the mapping configuration for this field"""
-        columns = [var.get() for var in self.column_vars if var.get()]
-        if not columns:
-            return None
+        # Debug: print what we're actually seeing
+        all_vars = [var.get() for var in self.column_vars]
+        print(f"[DEBUG] get_mapping() for {self.placeholder}:")
+        print(f"[DEBUG]   - Total column_vars: {len(self.column_vars)}")
+        print(f"[DEBUG]   - All values: {all_vars}")
+        print(f"[DEBUG]   - Non-empty values: {[v for v in all_vars if v]}")
         
+        columns = [var.get() for var in self.column_vars if var.get()]
+        
+        # IMPORTANT: Always return a mapping object, even if no columns selected
+        # This preserves the number of dropdowns when saving/loading config
         return {
-            'columns': columns,
-            'combine': self.combine_var.get()
+            'columns': columns if columns else [],
+            'combine': self.combine_var.get(),
+            'num_dropdowns': len(self.column_vars)  # Save the number of dropdowns
         }
     
     def set_mapping(self, mapping_config):
@@ -156,20 +183,28 @@ class FieldMappingRow:
         
         columns = mapping_config.get('columns', [])
         combine = mapping_config.get('combine', False)
+        num_dropdowns = mapping_config.get('num_dropdowns', max(1, len(columns)))  # Default to at least 1 or number of columns
+        
+        print(f"[DEBUG] set_mapping() for {self.placeholder}:")
+        print(f"[DEBUG]   - Config columns: {columns}")
+        print(f"[DEBUG]   - Config num_dropdowns: {num_dropdowns}")
         
         # Clear existing
         for widget in self.columns_frame.winfo_children():
             widget.destroy()
         self.column_vars.clear()
         
-        # Add selectors for saved columns
-        for i, col in enumerate(columns):
+        # Create the correct number of dropdowns
+        for i in range(num_dropdowns):
             self.create_column_selector(i)
-            if i < len(self.column_vars):
-                self.column_vars[i].set(col)
+            # Set the column value if available
+            if i < len(columns) and columns[i]:
+                self.column_vars[i].set(columns[i])
         
         # Set combine checkbox
         self.combine_var.set(combine)
+        
+        print(f"[DEBUG]   - Created {len(self.column_vars)} dropdowns with values: {[v.get() for v in self.column_vars]}")
 
 
 class EnhancedTemplaterGUI:
@@ -442,9 +477,10 @@ See the LICENSE file for full details.
             # Update filename field comboboxes
             self.filename_field1_combo['values'] = [''] + self.csv_columns
             self.filename_field2_combo['values'] = [''] + self.csv_columns
-            if self.csv_columns:
-                self.filename_field1_var.set(self.csv_columns[0])
-                self.filename_field2_var.set('')  # Second field is optional
+            # Don't auto-select the first column - let user choose or config load it
+            # if self.csv_columns:
+            #     self.filename_field1_var.set(self.csv_columns[0])
+            #     self.filename_field2_var.set('')  # Second field is optional
             
             self.update_mapping_ui()
             self.load_config()
@@ -502,10 +538,14 @@ See the LICENSE file for full details.
             self.check_ready_to_generate()
     
     def update_mapping_ui(self):
+        print("[DEBUG] ========== update_mapping_ui() called ==========")
+        print(f"[DEBUG] This will DESTROY and RECREATE all mapping rows!")
+        
         # Clear existing mapping widgets
         for widget in self.mapping_scrollframe.winfo_children():
             widget.destroy()
         self.field_mapping_rows.clear()
+        print(f"[DEBUG] All mapping rows cleared")
         
         if not self.template_placeholders or not self.csv_columns:
             if not self.template_placeholders and not self.csv_columns:
@@ -678,7 +718,7 @@ See the LICENSE file for full details.
             # Debug: show what get_mapping() returns
             print(f"[DEBUG] {placeholder} get_mapping() returned: {mapping}")
             
-            if mapping:
+            if mapping and mapping.get('columns'):  # Check if there are actually columns selected
                 columns = mapping['columns']
                 combine = mapping['combine']
                 
@@ -688,15 +728,16 @@ See the LICENSE file for full details.
                     print(f"[DEBUG] Mapping {placeholder} = combine({', '.join(columns)})")
                 else:
                     # Use priority - first available non-empty column
-                    field_mapping[placeholder] = columns[0] if columns else None
-                    print(f"[DEBUG] Mapping {placeholder} = {columns[0]}")
+                    field_mapping[placeholder] = columns[0] if columns else ''
+                    if columns:
+                        print(f"[DEBUG] Mapping {placeholder} = {columns[0]}")
                     # Store additional columns for fallback
                     if len(columns) > 1:
                         field_mapping[f"{placeholder}_fallback"] = columns[1:]
                         print(f"[DEBUG]   Fallback: {', '.join(columns[1:])}")
             else:
-                # Placeholder has no mapping - track it
-                # Debug: show the column vars to understand why mapping is None
+                # Placeholder has no mapping or all dropdowns are empty
+                # Debug: show the column vars to understand why
                 column_values = [var.get() for var in row.column_vars]
                 print(f"[DEBUG] {placeholder} has {len(row.column_vars)} column selector(s)")
                 print(f"[DEBUG] {placeholder} column_vars values: {column_values}")
@@ -720,12 +761,26 @@ See the LICENSE file for full details.
         
         # Warn about unmapped placeholders
         if unmapped_placeholders:
-            unmapped_list = '\n'.join([f"  • {p}" for p in unmapped_placeholders])
+            unmapped_details = []
+            for placeholder in unmapped_placeholders:
+                row = self.field_mapping_rows.get(placeholder)
+                if row:
+                    num_dropdowns = len(row.column_vars)
+                    num_filled = sum(1 for var in row.column_vars if var.get())
+                    if num_dropdowns > 1 and num_filled == 0:
+                        unmapped_details.append(f"  • {placeholder} — {num_dropdowns} dropdowns added but all empty (select columns!)")
+                    elif num_dropdowns == 1 and num_filled == 0:
+                        unmapped_details.append(f"  • {placeholder} — dropdown is empty (select a column!)")
+                    else:
+                        unmapped_details.append(f"  • {placeholder} — no mapping configured")
+                else:
+                    unmapped_details.append(f"  • {placeholder}")
+            
             warning_msg = (
                 f"⚠️ Warning: {len(unmapped_placeholders)} placeholder(s) in the template have no CSV column mapping:\n\n"
-                f"{unmapped_list}\n\n"
-                f"These placeholders will be left empty in generated documents.\n\n"
-                f"Do you want to continue?"
+                f"{chr(10).join(unmapped_details)}\n\n"
+                f"These placeholders will be left EMPTY in generated documents.\n\n"
+                f"Do you want to continue anyway?"
             )
             print(f"[DEBUG] WARNING: Unmapped placeholders detected: {', '.join(unmapped_placeholders)}")
             
@@ -806,9 +861,10 @@ See the LICENSE file for full details.
             if len(generated_files) < self.csv_row_count:
                 skipped = self.csv_row_count - len(generated_files)
                 message = (
-                    f"⚠️ Warning: Generated {len(generated_files)} documents from {self.csv_row_count} CSV rows.\n"
-                    f"{skipped} rows were skipped (likely due to empty data in mapped columns).\n\n"
-                    f"Check the debug logs for details."
+                    f"Generated {len(generated_files)} documents from {self.csv_row_count} CSV rows.\n\n"
+                    f"⚠️ {skipped} rows were skipped because they had NO data in ANY column.\n"
+                    f"(Empty rows are automatically skipped)\n\n"
+                    f"Note: Unmapped placeholders (like {{NOM}}) are OK - they just appear empty in documents."
                 )
                 if zip_path:
                     message += f"\n\nZIP archive: {os.path.basename(zip_path)}"
