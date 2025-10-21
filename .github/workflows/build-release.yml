@@ -24,6 +24,7 @@ jobs:
       - name: Run test suite
         run: |
           python test_modules.py
+          python test_enhanced.py
 
   build:
     needs: test

@@ -3,11 +3,11 @@
 block_cipher = None
 
 a = Analysis(
-    ['templater_gui.py'],
+    ['run_gui.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['pandas', 'docx', 'tkinter'],
+    hiddenimports=['pandas', 'docx', 'tkinter', 'tkinterdnd2'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

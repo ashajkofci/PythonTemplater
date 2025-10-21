@@ -256,7 +256,11 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
         csv_path: Path to CSV file
         template_path: Path to DOCX template
         outdir: Output directory
-        field_mapping: Dict mapping placeholder names to CSV column names
+        field_mapping: Dict mapping placeholder names to CSV column names or column combinations
+                      Supports:
+                      - Simple string: single column name
+                      - Space-separated string: "col1 col2" combines columns
+                      - For fallback columns, use placeholder_fallback key with list
         filename_field: CSV column to use for filename (optional)
         filename_prefix: Prefix for output filenames
         filename_suffix: Suffix for output filenames
@@ -285,12 +289,41 @@ def generate_documents(csv_path, template_path, outdir, field_mapping,
         mapping = {}
         skip_row = False
         
-        for placeholder, csv_column in field_mapping.items():
-            if csv_column and csv_column in row:
-                value = str(row[csv_column]).strip()
-                mapping[placeholder] = value
-            else:
-                mapping[placeholder] = ""
+        for placeholder, csv_spec in field_mapping.items():
+            # Skip fallback keys (processed separately)
+            if placeholder.endswith('_fallback'):
+                continue
+            
+            value = ""
+            
+            # Check if it's a combination of columns (space-separated)
+            if isinstance(csv_spec, str) and ' ' in csv_spec:
+                # Combine multiple columns
+                parts = []
+                for col_name in csv_spec.split():
+                    if col_name in row:
+                        col_val = str(row[col_name]).strip()
+                        if col_val:
+                            parts.append(col_val)
+                value = ' '.join(parts)
+            elif isinstance(csv_spec, str):
+                # Single column - try it first
+                if csv_spec in row:
+                    value = str(row[csv_spec]).strip()
+                
+                # If empty, try fallback columns
+                if not value:
+                    fallback_key = f"{placeholder}_fallback"
+                    if fallback_key in field_mapping:
+                        fallback_cols = field_mapping[fallback_key]
+                        for col in fallback_cols:
+                            if col in row:
+                                val = str(row[col]).strip()
+                                if val:
+                                    value = val
+                                    break
+            
+            mapping[placeholder] = value
         
         # Skip empty rows or rows without critical data
         if not any(mapping.values()):

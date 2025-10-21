@@ -6,8 +6,14 @@ Simple launcher script for the CSV Templater GUI application
 import sys
 
 try:
-    from templater_gui import main
-    sys.exit(main())
+    # Try to import the enhanced GUI first
+    try:
+        from templater_gui_enhanced import main
+        sys.exit(main())
+    except ImportError:
+        # Fall back to standard GUI if enhanced version not available
+        from templater_gui import main
+        sys.exit(main())
 except ImportError as e:
     print("Error: Required dependencies not found.")
     print("\nPlease install dependencies:")
